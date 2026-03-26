@@ -1,106 +1,63 @@
-import json
-import websocket
-import ssl
-import time
+import requests
 import os
-from typing import Optional
 
 
-class WeComBot:
-    WSS_URL = "wss://openws.work.weixin.qq.com"
+def send_wecom_message(content: str):
+    """
+    使用企业微信 Webhook 发送 Markdown 消息到群聊
+    无需公网 IP，HTTP POST 直接推送
+    """
+    webhook_key = os.environ.get('WECOM_WEBHOOK_KEY')
     
-    def __init__(self, bot_id: str, secret: str, recv_id: str):
-        self.bot_id = bot_id
-        self.secret = secret
-        self.recv_id = recv_id
-        self.ws: Optional[websocket.WebSocket] = None
-        
-    def _connect(self):
-        """建立 WebSocket 长连接"""
-        try:
-            print(f"   连接 WebSocket: {self.WSS_URL}")
-            self.ws = websocket.create_connection(
-                self.WSS_URL,
-                sslopt={"cert_reqs": ssl.CERT_NONE},
-                timeout=10
-            )
-            print("   WebSocket 连接成功")
-        except Exception as e:
-            raise Exception(f"WebSocket 连接失败: {e}")
-        
-    def _subscribe(self) -> bool:
-        """发送订阅请求"""
-        subscribe_cmd = {
-            "cmd": "aibot_subscribe",
-            "headers": {
-                "req_id": f"sub_{int(time.time() * 1000)}"
-            },
-            "body": {
-                "bot_id": self.bot_id,
-                "secret": self.secret
-            }
+    if not webhook_key:
+        raise Exception("环境变量 WECOM_WEBHOOK_KEY 未设置，请在 GitHub Secrets 中配置")
+    
+    url = f"https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key={webhook_key}"
+    
+    payload = {
+        "msgtype": "markdown",
+        "markdown": {
+            "content": content
         }
-        
-        try:
-            self.ws.send(json.dumps(subscribe_cmd))
-            print("   订阅请求已发送")
-            
-            response = json.loads(self.ws.recv())
-            print(f"   订阅响应: {response}")
-            
-            if response.get("errcode") != 0:
-                raise Exception(f"订阅失败: {response.get('errmsg')} (errcode: {response.get('errcode')})")
-            
-            print("   订阅成功")
-            return True
-        except websocket.WebSocketTimeoutException:
-            raise Exception("订阅超时：请检查 Bot ID 和 Secret 是否正确")
-        except Exception as e:
-            raise Exception(f"订阅过程错误: {e}")
+    }
     
-    def send_markdown_message(self, content: str) -> dict:
-        """发送 Markdown 格式消息"""
-        try:
-            self._connect()
-            self._subscribe()
-            
-            # 截断过长消息（Markdown 限制约 4096 字符）
-            if len(content) > 4000:
-                content = content[:3997] + "..."
-                print("   警告：消息过长，已截断")
-            
-            # 确保内容不为空
-            if not content or not content.strip():
-                content = "（空消息）"
-            
-            send_cmd = {
-                "cmd": "aibot_send_msg",
-                "headers": {
-                    "req_id": f"send_{int(time.time() * 1000)}"
-                },
-                "body": {
-                    "recv_id": self.recv_id,
-                    "msgtype": "markdown",
-                    "markdown": {
-                        "content": content
-                    }
-                }
-            }
-            
-            print(f"   发送 Markdown 消息长度: {len(content)} 字符")
-            self.ws.send(json.dumps(send_cmd, ensure_ascii=False))
-            
-            response = json.loads(self.ws.recv())
-            print(f"   发送响应: {response}")
-            
-            if response.get("errcode") != 0:
-                raise Exception(f"发送消息失败: {response.get('errmsg')} (errcode: {response.get('errcode')})")
-            
-            return response
-            
-        except Exception as e:
-            raise Exception(f"发送消息时出错: {e}")
-        finally:
-            if self.ws:
-                self.ws.close()
-                print("   连接已关闭")
+    print(f"   发送 Webhook 请求到企业微信...")
+    response = requests.post(url, json=payload, timeout=10)
+    result = response.json()
+    
+    if result.get("errcode") != 0:
+        raise Exception(f"企业微信返回错误: {result.get('errmsg')} (errcode: {result.get('errcode')})")
+    
+    print(f"   ✅ Webhook 推送成功")
+    return result
+
+
+def send_text_message(content: str):
+    """
+    发送纯文本消息（备用）
+    """
+    webhook_key = os.environ.get('WECOM_WEBHOOK_KEY')
+    
+    if not webhook_key:
+        raise Exception("环境变量 WECOM_WEBHOOK_KEY 未设置")
+    
+    url = f"https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key={webhook_key}"
+    
+    # 截断过长消息
+    if len(content) > 4000:
+        content = content[:3997] + "..."
+    
+    payload = {
+        "msgtype": "text",
+        "text": {
+            "content": content
+        }
+    }
+    
+    response = requests.post(url, json=payload, timeout=10)
+    result = response.json()
+    
+    if result.get("errcode") != 0:
+        raise Exception(f"发送失败: {result.get('errmsg')}")
+    
+    return result
