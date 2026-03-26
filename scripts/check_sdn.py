@@ -1,3 +1,5 @@
+import csv
+import io
 import json
 import requests
 import os
@@ -27,9 +29,7 @@ def load_config():
     
     try:
         with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
-            config = json.load(f)
-        print(f"   ✅ 配置加载成功，监测 {len(config.get('companies', []))} 家公司")
-        return config
+            return json.load(f)
     except Exception as e:
         print(f"   ❌ 错误：{e}")
         sys.exit(1)
@@ -70,134 +70,120 @@ def fetch_sdn_list():
         return None
 
 
-import csv
-import io
-
 def parse_sdn_data(csv_text):
-    """使用标准 CSV 解析器（处理字段内逗号）"""
+    """
+    解析 CSV - OpenSanctions simple.csv 格式：
+    第1列: id, 第2列: schema, 第3列: name, 第4列: alias
+    """
     print("   解析 CSV...")
     entities = []
     
-    # 使用 csv.reader 正确处理引号内的逗号
     reader = csv.reader(io.StringIO(csv_text))
+    next(reader)  # 跳过表头
     
-    header = next(reader)  # 跳过表头
-    print(f"   表头: {header}")
-    
-    for i, row in enumerate(reader):
-        if len(row) >= 3:
+    for row in reader:
+        if len(row) >= 4:
             entities.append({
-                'name': row[0].strip(),
+                'id': row[0].strip(),
                 'type': row[1].strip(),
-                'programs': row[2].strip()
+                'name': row[2].strip(),
+                'alias': row[3].strip()
             })
-        elif row:  # 如果解析出来字段不足，打印调试
-            if i < 5:  # 只打印前5个异常行
-                print(f"   警告: 第{i}行字段不足: {row}")
+        elif len(row) >= 3:
+            entities.append({
+                'id': row[0].strip(),
+                'type': row[1].strip(),
+                'name': row[2].strip(),
+                'alias': ''
+            })
     
     print(f"   📊 解析完成：共 {len(entities)} 个实体")
     
-    # 立即搜索验证
-    kovrov_list = [e['name'] for e in entities if 'kovrov' in e['name'].lower()]
-    print(f"   🔍 验证: 找到 {len(kovrov_list)} 个 Kovrov 实体")
+    # 验证 Kovrov
+    kovrov_list = [e for e in entities if 'kovrov' in e['name'].lower()]
+    print(f"   🔍 验证: 找到 {len(kovrov_list)} 个 Kovrov")
     if kovrov_list:
-        for name in kovrov_list[:3]:
-            print(f"      - {name}")
+        print(f"      例如: {kovrov_list[0]['name']}")
+        print(f"      alias: {kovrov_list[0].get('alias', '无')}")
     
     return entities
 
 
 def check_matches(entities, watchlist):
-    """模糊匹配 - 带强制诊断"""
+    """
+    匹配逻辑：配置中的任一名称（name/alias）匹配 CSV 中的任一名称（name/alias）即命中
+    """
     print("步骤 3: 匹配检查...")
     matches = []
+    seen = set()
     
-    # ===== 强制诊断：查找 Kovrov =====
-    print("\n   🔍 强制搜索 'Kovrov'（不区分大小写）：")
-    kovrov_entities = [e for e in entities if 'kovrov' in e['name'].lower()]
-    print(f"   找到 {len(kovrov_entities)} 个包含 'kovrov' 的实体：")
-    for e in kovrov_entities[:5]:
-        print(f"     - '{e['name']}' (长度:{len(e['name'])})")
-        # 显示每个字符的ASCII码，检查隐藏字符
-        print(f"       ASCII: {[ord(c) for c in e['name'][:20]]}")
-    
-    # ===== 强制诊断：直接精确匹配测试 =====
-    print("\n   🔍 测试配置中的名称：")
-    for company in watchlist['companies']:
-        target = company['name']
-        print(f"     查找: '{target}'")
-        
-        # 方法1：直接子串匹配
-        found_substring = [e for e in entities if target.lower() in e['name'].lower()]
-        print(f"       子串匹配: 找到 {len(found_substring)} 个")
-        if found_substring:
-            print(f"       例如: '{found_substring[0]['name']}'")
-        
-        # 方法2：完全相等（去除首尾空格后）
-        found_exact = [e for e in entities if target.strip().lower() == e['name'].strip().lower()]
-        print(f"       完全匹配: 找到 {len(found_exact)} 个")
-        
-        # 方法3：模糊匹配（显示实际得分）
-        if entities:
-            sample = entities[0]
-            from rapidfuzz import fuzz
-            score = fuzz.ratio(target, sample['name'])
-            print(f"       与第一个实体 '{sample['name']}' 的得分: {score}")
-    
-    # ===== 原始匹配逻辑（保持不变）=====
-    print("\n   🎯 执行标准匹配逻辑...")
     for entity in entities:
+        # CSV 侧的所有名称（name + alias）
+        csv_identifiers = [entity['name']]
+        if entity.get('alias'):
+            csv_identifiers.append(entity['alias'])
+        
         for company in watchlist['companies']:
+            # 配置侧的所有名称（name + aliases）
+            config_identifiers = [company['name']]
             aliases = company.get('aliases', [])
             if isinstance(aliases, str):
                 aliases = [aliases]
+            config_identifiers.extend(aliases)
             
-            candidates = [company['name']] + aliases
-            
-            for candidate in candidates:
-                from rapidfuzz import fuzz
-                score = fuzz.token_set_ratio(candidate, entity['name'])
-                threshold = company.get('confidence_threshold', 0.75) * 100
-                
-                # 如果包含关键词，强制打印得分（即使未命中）
-                if 'kovrov' in entity['name'].lower() or 'kovrov' in candidate.lower():
-                    if score > 50:  # 只要得分>50就打印
-                        print(f"       对比: '{candidate}' vs '{entity['name']}' = {score}%")
-                
-                if score >= threshold and score >= watchlist.get('min_match_score', 70):
-                    matches.append({
-                        'watch_name': company['name'],
-                        'matched_name': entity['name'],
-                        'type': entity['type'],
-                        'programs': entity['programs'],
-                        'score': round(score, 1)
-                    })
-                    print(f"   ✓ 命中: {entity['name']} ({score}%)")
-                    break
+            # 双重循环：配置的任一标识符 vs CSV 的任一标识符
+            for config_id in config_identifiers:
+                for csv_id in csv_identifiers:
+                    # 模糊匹配
+                    score = fuzz.token_set_ratio(config_id, csv_id)
+                    
+                    # 子串匹配（兜底策略）
+                    config_lower = config_id.lower()
+                    csv_lower = csv_id.lower()
+                    substring_match = (config_lower in csv_lower or csv_lower in config_lower) and len(config_id) > 4
+                    
+                    threshold = company.get('confidence_threshold', 0.75) * 100
+                    
+                    # 任一匹配成功即命中
+                    if (score >= threshold or substring_match) and entity['name'] not in seen:
+                        matches.append({
+                            'watch_name': company['name'],
+                            'matched_name': entity['name'],
+                            'matched_alias': entity.get('alias', ''),
+                            'type': entity['type'],
+                            'programs': entity['programs'],
+                            'score': round(score, 1),
+                            'matched_by': 'substring' if substring_match else 'fuzzy'
+                        })
+                        seen.add(entity['name'])
+                        print(f"   ✓ 命中: {entity['name']} (匹配: '{config_id}' vs '{csv_id}', 得分: {score}%)")
+                        break  # 跳出内层循环
+                else:
+                    continue  # 继续下一个 config_id
+                break  # 已命中，跳出外层循环
     
-    print(f"\n   总计匹配: {len(matches)} 个")
+    print(f"   🎯 总计发现 {len(matches)} 个匹配")
     return matches
 
 
 def format_markdown_message(all_matches, new_matches, check_time):
-    """格式化消息 - 显示所有命中，并标注新增"""
+    """格式化 Markdown 消息"""
     lines = []
     lines.append("## 🚨 SDN 制裁清单监测报告")
     lines.append("")
     
-    # 统计信息
     lines.append(f"**📊 监测结果：发现 {len(all_matches)} 个命中**")
     if new_matches:
         lines.append(f"**🔴 其中新增 {len(new_matches)} 个**")
     lines.append("")
     
-    # 显示所有命中
     for idx, match in enumerate(all_matches, 1):
-        # 标记新增的
         is_new = any(m['matched_name'] == match['matched_name'] for m in new_matches)
         new_flag = "🔴 " if is_new else ""
         
         lines.append(f"{idx}. {new_flag}**{match['watch_name']}** → `{match['matched_name']}`")
+        if match.get('matched_alias'):
+            lines.append(f"   - 别名：{match['matched_alias']}")
         lines.append(f"   - 类型：{match['type']}")
         lines.append(f"   - 制裁项目：{match['programs']}")
         lines.append(f"   - 匹配度：{match['score']}%")
@@ -225,29 +211,31 @@ def main():
             sys.exit(1)
         
         entities = parse_sdn_data(sdn_data)
+        if not entities:
+            print("错误：未解析到实体")
+            sys.exit(1)
         
-        # 3. 匹配
+        # 3. 匹配检查
         current_matches = check_matches(entities, config)
         
-        # 4. 检测新增（用于标记，不影响推送）
+        # 4. 检测新增（仅用于标记，不控制推送）
         print("步骤 4: 检测历史记录...")
         last_state = load_last_state()
-        prev_matched_names = {m['matched_name'] for m in last_state.get('matched_entities', [])}
-        new_matches = [m for m in current_matches if m['matched_name'] not in prev_matched_names]
+        prev_names = {m['matched_name'] for m in last_state.get('matched_entities', [])}
+        new_matches = [m for m in current_matches if m['matched_name'] not in prev_names]
         
         if new_matches:
             print(f"   🆕 新增命中：{len(new_matches)} 个")
         else:
             print(f"   无新增命中")
         
-        # 5. 关键修改：只要有命中就推送（不管是否新增）
+        # 5. 关键：只要有命中就推送（不管是否新增）
         if current_matches:
             print(f"步骤 5: 发送企业微信通知（发现 {len(current_matches)} 个命中）...")
             
             webhook_key = os.environ.get('WECOM_WEBHOOK_KEY')
             if not webhook_key:
                 print("   ❌ 错误：未设置 WECOM_WEBHOOK_KEY")
-                print("   请配置 GitHub Secret: WECOM_WEBHOOK_KEY")
                 sys.exit(1)
             
             try:
