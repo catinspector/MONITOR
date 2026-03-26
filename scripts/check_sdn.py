@@ -166,13 +166,15 @@ def parse_sdn_data(xml_text):
 
 
 def check_matches(entities, watchlist):
-    """匹配检查"""
+    """严格匹配 - 避免误报"""
     print("步骤 3: 匹配检查...")
     matches = []
     seen = set()
     
-    # 停用词（避免误报）
-    stop_words = ['corporation', 'company', 'inc', 'ltd', 'llc', 'trading', 'enterprise']
+    # 停用词（过于通用的词）
+    stop_words = {'corporation', 'company', 'inc', 'ltd', 'llc', 'limited', 
+                  'pjsc', 'ojsc', 'jsc', 'holding', 'group', 'enterprise', 
+                  'trading', 'international', 'global', 'systems', 'services'}
     
     for entity in entities:
         csv_identifiers = [entity['name']] + entity.get('aliases', [])
@@ -184,48 +186,53 @@ def check_matches(entities, watchlist):
                 aliases = [aliases]
             config_identifiers.extend(aliases)
             
-            matched = False
             for config_id in config_identifiers:
+                # 清理配置名称（移除停用词）
+                config_words = [w for w in config_id.lower().split() 
+                               if w not in stop_words and len(w) > 2]
+                
                 for csv_id in csv_identifiers:
-                    # 模糊匹配
                     score = fuzz.token_set_ratio(config_id, csv_id)
                     
-                    # 严格子串匹配（移除停用词后）
-                    config_lower = config_id.lower()
-                    csv_lower = csv_id.lower()
+                    # 严格条件1：高模糊得分（>=90）
+                    high_score = score >= 90
                     
-                    # 清理停用词
-                    config_clean = ' '.join([w for w in config_lower.split() if w not in stop_words])
-                    csv_clean = ' '.join([w for w in csv_lower.split() if w not in stop_words])
+                    # 严格条件2：关键特征词匹配（至少2个非停用词）
+                    csv_words = set(csv_id.lower().split())
+                    matching_words = sum(1 for w in config_words if w in csv_words)
+                    key_terms_match = matching_words >= 2 and len(config_words) >= 2
                     
-                    strict_contained = (
-                        len(config_clean) > 10 and 
-                        (config_clean in csv_clean or csv_clean in config_clean)
+                    # 严格条件3：长词精确包含（长度>8的词必须完整匹配）
+                    long_words_match = all(
+                        w in csv_id.lower() 
+                        for w in config_words 
+                        if len(w) > 8
                     )
                     
-                    threshold = company.get('confidence_threshold', 0.9) * 100
-                    
-                    if (score >= threshold or strict_contained) and entity['name'] not in seen:
+                    # 必须满足：高得分 或 (关键特征匹配 且 长词包含)
+                    if (high_score or (key_terms_match and long_words_match)) and \
+                       entity['name'] not in seen:
+                        
                         matches.append({
                             'watch_name': company['name'],
                             'matched_name': entity['name'],
-                            'matched_aliases': entity.get('aliases', [])[:3],  # 只存前3个别名
+                            'matched_aliases': entity.get('aliases', [])[:2],
                             'type': entity['type'],
                             'programs': entity['programs'],
                             'score': round(score, 1)
                         })
                         seen.add(entity['name'])
-                        print(f"   ✓ 命中: {entity['name']} (得分: {score}%)")
-                        matched = True
+                        print(f"   ✓ 命中: {entity['name']} (得分: {score}%, 关键词: {matching_words})")
                         break
-                if matched:
-                    break
-            if matched:
+                else:
+                    continue
+                break
+            if entity['name'] in seen:
                 break
     
     print(f"   🎯 总计发现 {len(matches)} 个匹配")
     return matches
-
+    
 
 def format_markdown_message(all_matches, new_matches, check_time):
     """格式化消息"""
