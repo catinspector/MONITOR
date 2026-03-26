@@ -71,43 +71,42 @@ def fetch_sdn_list():
 
 
 def parse_sdn_data(csv_text):
-    """解析 CSV - 拆分 aliases 列中的多个别名"""
+    """解析 CSV - 同时验证原始文本"""
     print("   解析 CSV...")
-    entities = []
     
+    # 先搜索原始文本
+    if 'Kovrov' in csv_text:
+        print("   ✅ 原始文本中包含 'Kovrov'")
+        # 找到包含 Kovrov 的行
+        lines = csv_text.split('\n')
+        for line in lines:
+            if 'Kovrov' in line:
+                print(f"      原始行: {line[:200]}")
+                break
+    elif 'kovrov' in csv_text.lower():
+        print("   ✅ 原始文本中包含小写 'kovrov'")
+    else:
+        print("   ❌ 原始文本中完全没有 'Kovrov'")
+    
+    # 正常解析
+    entities = []
     reader = csv.reader(io.StringIO(csv_text))
-    next(reader)  # 跳过表头
+    next(reader)
     
     for row in reader:
         if len(row) >= 4:
-            # 关键修复：aliases 列可能包含多个别名，用分号分隔
             name = row[2].strip()
             aliases_str = row[3].strip()
-            
-            # 拆分为列表（如果没有别名则为空列表）
             aliases_list = [a.strip() for a in aliases_str.split(';') if a.strip()]
             
             entities.append({
                 'id': row[0].strip(),
                 'type': row[1].strip(),
                 'name': name,
-                'aliases': aliases_list  # 现在是列表
+                'aliases': aliases_list
             })
     
     print(f"   📊 解析完成：共 {len(entities)} 个实体")
-    
-    # 验证：同时搜索 name 和 aliases
-    kovrov_list = []
-    for e in entities:
-        all_names = [e['name']] + e['aliases']
-        if any('kovrov' in n.lower() for n in all_names):
-            kovrov_list.append(e)
-    
-    print(f"   🔍 验证: 找到 {len(kovrov_list)} 个 Kovrov")
-    if kovrov_list:
-        print(f"      例如: {kovrov_list[0]['name']}")
-        print(f"      别名: {kovrov_list[0]['aliases']}")
-    
     return entities
 
 
