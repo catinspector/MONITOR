@@ -3,17 +3,17 @@
     {
       "name": "State Atomic Energy Corporation",
       "aliases": ["Rosatom"],
-      "confidence_threshold": 0.9
+      "confidence_threshold": 0.95
     },
     {
       "name": "atomic energy power corporation",
       "aliases": ["Atomenergoprom"],
-      "confidence_threshold": 0.9
+      "confidence_threshold": 0.95
     },
     {
       "name": "Kovrov Mechanical Plant",
       "aliases": ["Kovrov Mechanical Plant"],
-      "confidence_threshold": 0.9
+      "confidence_threshold": 0.95
     }
   ],
   "alert_on_update": true,
