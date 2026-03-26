@@ -2,12 +2,13 @@ name: SDN Sanctions Monitor
 
 on:
   schedule:
-    # 北京时间工作日上午 9:00 (UTC 01:00)
-    - cron: '0 1 * * 1-5'
+    # 北京时间早上 9:00 (UTC 01:00)
+    - cron: '0 1 * * *'
+    # 北京时间下午 4:00 (UTC 08:00)  
+    - cron: '0 8 * * *'
   workflow_dispatch:  # 支持手动触发
 
 env:
-  # 强制使用 Node.js 24（消除警告）
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
@@ -37,7 +38,6 @@ jobs:
       
       - name: Run SDN check
         env:
-          # 只需配置这一个 Secret！
           WECOM_WEBHOOK_KEY: ${{ secrets.WECOM_WEBHOOK_KEY }}
         run: |
           python scripts/check_sdn.py
