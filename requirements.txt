@@ -1,0 +1,4 @@
+requests>=2.31.0
+websocket-client>=1.6.0
+fuzzywuzzy>=0.18.0
+python-Levenshtein>=0.21.0
