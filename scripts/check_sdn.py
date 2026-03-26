@@ -70,36 +70,106 @@ def fetch_sdn_list():
         return None
 
 
+import xml.etree.ElementTree as ET
+
 def parse_sdn_data(xml_text):
-    """解析 OFAC 官方 XML"""
-    import xml.etree.ElementTree as ET
-    root = ET.fromstring(xml_text)
+    """解析 OFAC 官方 SDN XML"""
+    print("   解析 OFAC XML...")
+    
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError as e:
+        print(f"   ❌ XML 解析错误: {e}")
+        return []
     
     entities = []
-    for entry in root.findall('.//sdnEntry'):
-        first = entry.find('firstName')
-        last = entry.find('lastName')
-        
-        name = ''
-        if last is not None and last.text:
-            name = last.text
-        elif first is not None and first.text:
-            name = first.text
-        
-        # 获取别名
-        aliases = []
-        for aka in entry.findall('.//aka'):
-            aka_last = aka.find('lastName')
-            if aka_last is not None and aka_last.text:
-                aliases.append(aka_last.text)
-        
-        if name:
+    publish_date = root.find('publishInformation/Publish_Date')
+    if publish_date is not None:
+        print(f"   📅 SDN 清单日期: {publish_date.text}")
+    
+    # 遍历所有 sdnEntry
+    for entry in root.findall('sdnEntry'):
+        try:
+            # 获取名称（公司通常在 lastName，个人是 firstName + lastName）
+            first_name = entry.find('firstName')
+            last_name = entry.find('lastName')
+            
+            name = ''
+            if last_name is not None and last_name.text:
+                name = last_name.text.strip()
+            if first_name is not None and first_name.text:
+                if name:
+                    name = f"{first_name.text.strip()} {name}"
+                else:
+                    name = first_name.text.strip()
+            
+            if not name:
+                continue
+            
+            # 获取类型（Entity, Individual, Vessel, Aircraft）
+            sdn_type = entry.find('sdnType')
+            entity_type = sdn_type.text.strip() if sdn_type is not None else 'Unknown'
+            
+            # 获取制裁项目（program）
+            programs = []
+            program_list = entry.find('programList')
+            if program_list is not None:
+                for prog in program_list.findall('program'):
+                    if prog.text:
+                        programs.append(prog.text.strip())
+            
+            # 获取别名（akaList）
+            aliases = []
+            aka_list = entry.find('akaList')
+            if aka_list is not None:
+                for aka in aka_list.findall('aka'):
+                    aka_first = aka.find('firstName')
+                    aka_last = aka.find('lastName')
+                    
+                    aka_name = ''
+                    if aka_last is not None and aka_last.text:
+                        aka_name = aka_last.text.strip()
+                    if aka_first is not None and aka_first.text:
+                        if aka_name:
+                            aka_name = f"{aka_first.text.strip()} {aka_name}"
+                        else:
+                            aka_name = aka_first.text.strip()
+                    
+                    if aka_name and aka_name != name:
+                        aliases.append(aka_name)
+            
+            # 获取地址（addressList）用于辅助识别
+            addresses = []
+            address_list = entry.find('addressList')
+            if address_list is not None:
+                for addr in address_list.findall('address'):
+                    addr_str = ''
+                    for field in ['address1', 'address2', 'city', 'country']:
+                        elem = addr.find(field)
+                        if elem is not None and elem.text:
+                            addr_str += elem.text.strip() + ' '
+                    if addr_str:
+                        addresses.append(addr_str.strip())
+            
             entities.append({
                 'name': name,
                 'aliases': aliases,
-                'type': 'Entity',
-                'programs': 'SDN'
+                'type': entity_type,
+                'programs': '; '.join(programs) if programs else 'SDN',
+                'addresses': addresses
             })
+            
+        except Exception as e:
+            continue  # 跳过解析失败的条目
+    
+    print(f"   📊 解析完成：共 {len(entities)} 个实体")
+    
+    # 验证 Kovrov
+    kovrov_list = [e for e in entities if 'kovrov' in e['name'].lower()]
+    print(f"   🔍 验证: 找到 {len(kovrov_list)} 个 Kovrov")
+    if kovrov_list:
+        print(f"      例如: {kovrov_list[0]['name']}")
+        print(f"      别名: {kovrov_list[0]['aliases'][:3]}...")
     
     return entities
 
