@@ -166,69 +166,69 @@ def parse_sdn_data(xml_text):
 
 
 def check_matches(entities, watchlist):
-    """严格匹配 - 避免误报"""
+    """严格匹配 - 必须包含独特关键词"""
     print("步骤 3: 匹配检查...")
     matches = []
     seen = set()
     
-    # 停用词（过于通用的词）
-    stop_words = {'corporation', 'company', 'inc', 'ltd', 'llc', 'limited', 
-                  'pjsc', 'ojsc', 'jsc', 'holding', 'group', 'enterprise', 
-                  'trading', 'international', 'global', 'systems', 'services'}
-    
-    for entity in entities:
-        csv_identifiers = [entity['name']] + entity.get('aliases', [])
+    for company in watchlist['companies']:
+        # 提取独特关键词（长度>4且非通用词）
+        unique_terms = [company['name'].lower()]
+        aliases = company.get('aliases', [])
+        if isinstance(aliases, str):
+            aliases = [aliases]
+        unique_terms.extend([a.lower() for a in aliases])
         
-        for company in watchlist['companies']:
-            config_identifiers = [company['name']]
-            aliases = company.get('aliases', [])
-            if isinstance(aliases, str):
-                aliases = [aliases]
-            config_identifiers.extend(aliases)
-            
-            for config_id in config_identifiers:
-                # 清理配置名称（移除停用词）
-                config_words = [w for w in config_id.lower().split() 
-                               if w not in stop_words and len(w) > 2]
-                
-                for csv_id in csv_identifiers:
-                    score = fuzz.token_set_ratio(config_id, csv_id)
-                    
-                    # 严格条件1：高模糊得分（>=90）
-                    high_score = score >= 90
-                    
-                    # 严格条件2：关键特征词匹配（至少2个非停用词）
-                    csv_words = set(csv_id.lower().split())
-                    matching_words = sum(1 for w in config_words if w in csv_words)
-                    key_terms_match = matching_words >= 2 and len(config_words) >= 2
-                    
-                    # 严格条件3：长词精确包含（长度>8的词必须完整匹配）
-                    long_words_match = all(
-                        w in csv_id.lower() 
-                        for w in config_words 
-                        if len(w) > 8
-                    )
-                    
-                    # 必须满足：高得分 或 (关键特征匹配 且 长词包含)
-                    if (high_score or (key_terms_match and long_words_match)) and \
-                       entity['name'] not in seen:
-                        
-                        matches.append({
-                            'watch_name': company['name'],
-                            'matched_name': entity['name'],
-                            'matched_aliases': entity.get('aliases', [])[:2],
-                            'type': entity['type'],
-                            'programs': entity['programs'],
-                            'score': round(score, 1)
-                        })
-                        seen.add(entity['name'])
-                        print(f"   ✓ 命中: {entity['name']} (得分: {score}%, 关键词: {matching_words})")
-                        break
-                else:
-                    continue
-                break
+        print(f"   监测: {company['name']}")
+        
+        for entity in entities:
             if entity['name'] in seen:
-                break
+                continue
+            
+            csv_identifiers = [entity['name']] + entity.get('aliases', [])
+            
+            # 策略1：完整子串匹配（最准确）
+            full_match = False
+            for term in unique_terms:
+                for csv_id in csv_identifiers:
+                    # 清理后的完整匹配
+                    if term in csv_id.lower():
+                        full_match = True
+                        score = 100.0
+                        break
+                if full_match:
+                    break
+            
+            # 策略2：高模糊匹配（>=95%）且包含主要词
+            high_score_match = False
+            if not full_match:
+                for term in unique_terms:
+                    for csv_id in csv_identifiers:
+                        score = fuzz.token_set_ratio(term, csv_id)
+                        # 要求：高得分 AND 包含独特词（如kovrov/atomenergo）
+                        if score >= 95:
+                            # 检查是否包含独特词（至少1个长度>5的词）
+                            term_words = [w for w in term.split() if len(w) > 5]
+                            csv_text = csv_id.lower()
+                            has_unique_word = any(w in csv_text for w in term_words)
+                            if has_unique_word:
+                                high_score_match = True
+                                break
+                    if high_score_match:
+                        break
+            
+            if full_match or high_score_match:
+                matches.append({
+                    'watch_name': company['name'],
+                    'matched_name': entity['name'],
+                    'matched_aliases': entity.get('aliases', [])[:2],
+                    'type': entity['type'],
+                    'programs': entity['programs'],
+                    'score': round(score if 'score' in dir() else 100.0, 1)
+                })
+                seen.add(entity['name'])
+                match_type = "完整匹配" if full_match else "高得分匹配"
+                print(f"      ✓ 命中: {entity['name']} ({match_type})")
     
     print(f"   🎯 总计发现 {len(matches)} 个匹配")
     return matches
