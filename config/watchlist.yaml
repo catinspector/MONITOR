@@ -1,0 +1,20 @@
+# 待监测公司名单
+companies:
+  - name: State Atomic Energy Corporation
+    aliases:
+      - Rosatom
+    confidence_threshold: 0.85
+    
+  - name: atomic energy power corporation
+    aliases:
+      - Atomenergoprom
+    confidence_threshold: 0.85
+
+- name: KOVROV MECHANICAL PLANT PJSC
+    aliases:
+      - KOVROV MECHANICAL PLANT
+    confidence_threshold: 0.85
+
+# 监测配置
+alert_on_update: true
+min_match_score: 75
