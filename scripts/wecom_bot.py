@@ -57,44 +57,6 @@ class WeComBot:
         except Exception as e:
             raise Exception(f"订阅过程错误: {e}")
     
-    def send_text_message(self, content: str) -> dict:
-        """发送文本消息"""
-        try:
-            self._connect()
-            self._subscribe()
-            
-            send_cmd = {
-                "cmd": "aibot_send_msg",
-                "headers": {
-                    "req_id": f"send_{int(time.time() * 1000)}"
-                },
-                "body": {
-                    "recv_id": self.recv_id,
-                    "msgtype": "text",
-                    "text": {
-                        "content": content
-                    }
-                }
-            }
-            
-            print(f"   📤 发送消息给: {self.recv_id}")
-            self.ws.send(json.dumps(send_cmd))
-            
-            response = json.loads(self.ws.recv())
-            print(f"   📥 发送响应: {response}")
-            
-            if response.get("errcode") != 0:
-                raise Exception(f"发送消息失败: {response.get('errmsg')} (errcode: {response.get('errcode')})")
-            
-            return response
-            
-        except Exception as e:
-            raise Exception(f"发送消息时出错: {e}")
-        finally:
-            if self.ws:
-                self.ws.close()
-                print("   🔌 连接已关闭")
-    
     def send_markdown_message(self, content: str) -> dict:
         """发送 Markdown 格式消息"""
         try:
@@ -110,14 +72,19 @@ class WeComBot:
                     "recv_id": self.recv_id,
                     "msgtype": "markdown",
                     "markdown": {
-                        "content": content
-                    }
+                       "content": content[:4000]  # Markdown 限制通常更大
                 }
             }
+        }
             
             self.ws.send(json.dumps(send_cmd))
             response = json.loads(self.ws.recv())
-            return response
+
+
+            if response.get("errcode") != 0:
+            raise Exception(f"发送失败: {response.get('errmsg')}")
+        
+        return response
             
         finally:
             if self.ws:
