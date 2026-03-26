@@ -103,9 +103,9 @@ def check_matches(entities, watchlist):
             
             for candidate in candidates:
                 score = fuzz.token_set_ratio(candidate, entity['name'])
-                threshold = company.get('confidence_threshold', 0.8) * 100
+                threshold = company.get('confidence_threshold', 0.75) * 100
                 
-                if score >= threshold and score >= watchlist.get('min_match_score', 75):
+                if score >= threshold and score >= watchlist.get('min_match_score', 70):
                     matches.append({
                         'watch_name': company['name'],
                         'matched_name': entity['name'],
@@ -113,38 +113,35 @@ def check_matches(entities, watchlist):
                         'programs': entity['programs'],
                         'score': round(score, 1)
                     })
+                    print(f"   ✓ 命中: {entity['name']} (得分: {score}%)")
                     break
     
-    print(f"   🎯 发现 {len(matches)} 个匹配")
+    print(f"   🎯 总计发现 {len(matches)} 个匹配")
     return matches
 
 
-def format_markdown_message(matches, new_matches, check_time):
-    """格式化 Markdown 消息"""
+def format_markdown_message(all_matches, new_matches, check_time):
+    """格式化消息 - 显示所有命中，并标注新增"""
     lines = []
     lines.append("## 🚨 SDN 制裁清单监测报告")
     lines.append("")
     
+    # 统计信息
+    lines.append(f"**📊 监测结果：发现 {len(all_matches)} 个命中**")
     if new_matches:
-        lines.append(f"**🔴 新增命中 {len(new_matches)} 个：**")
-        lines.append("")
-        for idx, match in enumerate(new_matches, 1):
-            lines.append(f"{idx}. **{match['watch_name']}** → `{match['matched_name']}`")
-            lines.append(f"   - 类型：{match['type']}")
-            lines.append(f"   - 制裁项目：{match['programs']}")
-            lines.append(f"   - 匹配度：{match['score']}%")
-            lines.append("")
-    else:
-        lines.append("✅ **本次检查无新增命中**")
-        lines.append("")
+        lines.append(f"**🔴 其中新增 {len(new_matches)} 个**")
+    lines.append("")
     
-    if matches:
-        lines.append(f"**📋 当前累计命中：{len(matches)} 个**")
-        if len(matches) > 5:
-            lines.append(f"> 显示前 5 个，共 {len(matches)} 个")
-        lines.append("")
-        for match in matches[:5]:
-            lines.append(f"- {match['matched_name']}")
+    # 显示所有命中
+    for idx, match in enumerate(all_matches, 1):
+        # 标记新增的
+        is_new = any(m['matched_name'] == match['matched_name'] for m in new_matches)
+        new_flag = "🔴 " if is_new else ""
+        
+        lines.append(f"{idx}. {new_flag}**{match['watch_name']}** → `{match['matched_name']}`")
+        lines.append(f"   - 类型：{match['type']}")
+        lines.append(f"   - 制裁项目：{match['programs']}")
+        lines.append(f"   - 匹配度：{match['score']}%")
         lines.append("")
     
     lines.append("---")
@@ -173,22 +170,20 @@ def main():
         # 3. 匹配
         current_matches = check_matches(entities, config)
         
-        # 4. 检测新增
-        print("步骤 4: 检测新增...")
+        # 4. 检测新增（用于标记，不影响推送）
+        print("步骤 4: 检测历史记录...")
         last_state = load_last_state()
-        prev_names = {m['matched_name'] for m in last_state.get('matched_entities', [])}
-        new_matches = [m for m in current_matches if m['matched_name'] not in prev_names]
+        prev_matched_names = {m['matched_name'] for m in last_state.get('matched_entities', [])}
+        new_matches = [m for m in current_matches if m['matched_name'] not in prev_matched_names]
         
         if new_matches:
-            print(f"   🆕 新增：{[m['matched_name'] for m in new_matches]}")
+            print(f"   🆕 新增命中：{len(new_matches)} 个")
         else:
-            print(f"   无新增")
+            print(f"   无新增命中")
         
-        # 5. 推送判断
-        should_alert = bool(new_matches) or config.get('alert_on_update', False)
-        
-        if should_alert:
-            print("步骤 5: 发送企业微信通知...")
+        # 5. 关键修改：只要有命中就推送（不管是否新增）
+        if current_matches:
+            print(f"步骤 5: 发送企业微信通知（发现 {len(current_matches)} 个命中）...")
             
             webhook_key = os.environ.get('WECOM_WEBHOOK_KEY')
             if not webhook_key:
@@ -209,7 +204,7 @@ def main():
                 print(f"   ❌ 推送失败: {e}")
                 traceback.print_exc()
         else:
-            print("步骤 5: 无需推送（无新增命中）")
+            print("步骤 5: 未命中任何监测对象，跳过推送")
         
         # 6. 保存状态
         print("步骤 6: 保存状态...")
