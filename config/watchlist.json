@@ -1,21 +1,21 @@
 {
   "companies": [
     {
-      "name": "State Atomic Energy Corporation ",
+      "name": "State Atomic Energy Corporation",
       "aliases": ["Rosatom"],
-      "confidence_threshold": 0.75
+      "confidence_threshold": 0.9
     },
     {
       "name": "atomic energy power corporation",
       "aliases": ["Atomenergoprom"],
-      "confidence_threshold": 0.75
+      "confidence_threshold": 0.9
     },
     {
       "name": "Kovrov Mechanical Plant",
       "aliases": ["Kovrov Mechanical Plant"],
-      "confidence_threshold": 0.75
+      "confidence_threshold": 0.9
     }
   ],
   "alert_on_update": true,
-  "min_match_score": 65
+  "min_match_score": 90
 }
