@@ -73,90 +73,41 @@ def parse_sdn_data(xml_text):
     """解析 OFAC 官方 SDN XML"""
     print("   解析 OFAC XML...")
     
+    # 调试：打印前 500 个字符看结构
+    print(f"   [调试] XML 前 500 字符:")
+    print(xml_text[:500])
+    print("...")
+    
     try:
         root = ET.fromstring(xml_text)
     except ET.ParseError as e:
         print(f"   ❌ XML 解析错误: {e}")
         return []
     
+    # 调试：打印根标签
+    print(f"   [调试] 根标签: {root.tag}")
+    print(f"   [调试] 根属性: {root.attrib}")
+    
+    # 尝试不同的路径查找 sdnEntry
+    entries = root.findall('sdnEntry')
+    print(f"   [调试] 找到 {len(entries)} 个 sdnEntry (直接查找)")
+    
+    # 如果找不到，尝试带命名空间的路径
+    if len(entries) == 0:
+        # 获取命名空间
+        ns = {'': root.tag.split('}')[0].strip('{')} if '}' in root.tag else {}
+        print(f"   [调试] 尝试带命名空间: {ns}")
+        entries = root.findall('.//sdnEntry', ns)
+        print(f"   [调试] 找到 {len(entries)} 个 sdnEntry (带命名空间)")
+    
+    # 如果还是找不到，列出所有子标签
+    if len(entries) == 0:
+        print("   [调试] 根标签下的直接子标签:")
+        for i, child in enumerate(list(root)[:10]):  # 只显示前10个
+            print(f"      {i}: {child.tag}")
+    
     entities = []
-    
-    # 获取发布日期
-    publish_date = root.find('publishInformation/Publish_Date')
-    if publish_date is not None:
-        print(f"   📅 SDN 清单发布日期: {publish_date.text}")
-    
-    # 遍历所有 sdnEntry
-    for entry in root.findall('sdnEntry'):
-        try:
-            # 获取名称
-            first_name = entry.find('firstName')
-            last_name = entry.find('lastName')
-            
-            name = ''
-            if last_name is not None and last_name.text:
-                name = last_name.text.strip()
-            if first_name is not None and first_name.text:
-                if name:
-                    name = f"{first_name.text.strip()} {name}"
-                else:
-                    name = first_name.text.strip()
-            
-            if not name:
-                continue
-            
-            # 获取类型
-            sdn_type = entry.find('sdnType')
-            entity_type = sdn_type.text.strip() if sdn_type is not None else 'Unknown'
-            
-            # 获取制裁项目
-            programs = []
-            program_list = entry.find('programList')
-            if program_list is not None:
-                for prog in program_list.findall('program'):
-                    if prog.text:
-                        programs.append(prog.text.strip())
-            
-            # 获取别名
-            aliases = []
-            aka_list = entry.find('akaList')
-            if aka_list is not None:
-                for aka in aka_list.findall('aka'):
-                    aka_first = aka.find('firstName')
-                    aka_last = aka.find('lastName')
-                    
-                    aka_name = ''
-                    if aka_last is not None and aka_last.text:
-                        aka_name = aka_last.text.strip()
-                    if aka_first is not None and aka_first.text:
-                        if aka_name:
-                            aka_name = f"{aka_first.text.strip()} {aka_name}"
-                        else:
-                            aka_name = aka_first.text.strip()
-                    
-                    if aka_name and aka_name != name:
-                        aliases.append(aka_name)
-            
-            entities.append({
-                'name': name,
-                'aliases': aliases,
-                'type': entity_type,
-                'programs': '; '.join(programs) if programs else 'SDN'
-            })
-            
-        except Exception:
-            continue
-    
-    print(f"   📊 解析完成：共 {len(entities)} 个实体")
-    
-    # 验证
-    kovrov_list = [e for e in entities if 'kovrov' in e['name'].lower()]
-    print(f"   🔍 验证: 找到 {len(kovrov_list)} 个 Kovrov")
-    if kovrov_list:
-        print(f"      例如: {kovrov_list[0]['name']}")
-        print(f"      别名: {kovrov_list[0]['aliases'][:3]}")
-    
-    return entities
+    # ... 原有解析逻辑，但用上面找到的 entries
 
 
 def check_matches(entities, watchlist):
