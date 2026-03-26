@@ -14,7 +14,7 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(SCRIPT_DIR)
 
 # 配置
-OPEN_SANCTIONS_URL = "https://data.opensanctions.org/datasets/us_ofac_sdn/targets.simple.csv"
+OPEN_SANCTIONS_URL = "https://www.treasury.gov/ofac/downloads/sdn.xml"
 STATE_FILE = os.path.join(ROOT_DIR, "data", "last_check.json")
 CONFIG_FILE = os.path.join(ROOT_DIR, "config", "watchlist.json")
 
@@ -70,43 +70,37 @@ def fetch_sdn_list():
         return None
 
 
-def parse_sdn_data(csv_text):
-    """解析 CSV - 同时验证原始文本"""
-    print("   解析 CSV...")
+def parse_sdn_data(xml_text):
+    """解析 OFAC 官方 XML"""
+    import xml.etree.ElementTree as ET
+    root = ET.fromstring(xml_text)
     
-    # 先搜索原始文本
-    if 'Kovrov' in csv_text:
-        print("   ✅ 原始文本中包含 'Kovrov'")
-        # 找到包含 Kovrov 的行
-        lines = csv_text.split('\n')
-        for line in lines:
-            if 'Kovrov' in line:
-                print(f"      原始行: {line[:200]}")
-                break
-    elif 'kovrov' in csv_text.lower():
-        print("   ✅ 原始文本中包含小写 'kovrov'")
-    else:
-        print("   ❌ 原始文本中完全没有 'Kovrov'")
-    
-    # 正常解析
     entities = []
-    reader = csv.reader(io.StringIO(csv_text))
-    next(reader)
-    
-    for row in reader:
-        if len(row) >= 4:
-            name = row[2].strip()
-            aliases_str = row[3].strip()
-            aliases_list = [a.strip() for a in aliases_str.split(';') if a.strip()]
-            
+    for entry in root.findall('.//sdnEntry'):
+        first = entry.find('firstName')
+        last = entry.find('lastName')
+        
+        name = ''
+        if last is not None and last.text:
+            name = last.text
+        elif first is not None and first.text:
+            name = first.text
+        
+        # 获取别名
+        aliases = []
+        for aka in entry.findall('.//aka'):
+            aka_last = aka.find('lastName')
+            if aka_last is not None and aka_last.text:
+                aliases.append(aka_last.text)
+        
+        if name:
             entities.append({
-                'id': row[0].strip(),
-                'type': row[1].strip(),
                 'name': name,
-                'aliases': aliases_list
+                'aliases': aliases,
+                'type': 'Entity',
+                'programs': 'SDN'
             })
     
-    print(f"   📊 解析完成：共 {len(entities)} 个实体")
     return entities
 
 
