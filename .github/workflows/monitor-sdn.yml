@@ -2,9 +2,12 @@ name: SDN Sanctions Monitor
 
 on:
   schedule:
-    # 北京时间工作日上午 9:00（UTC 01:00），OFAC 通常在前一天晚间更新
-    - cron: '0 1 * * 1-5'
-  workflow_dispatch:  # 支持手动触发
+    - cron: '0 1 * * 1-5'  # 北京时间工作日上午 9:00
+  workflow_dispatch:
+
+# 强制使用 Node.js 24（解决警告）
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   monitor:
@@ -19,11 +22,12 @@ jobs:
           
       - name: Install dependencies
         run: |
-          pip install requests websocket-client fuzzywuzzy python-Levenshtein
+          # 使用 rapidfuzz 替代 fuzzywuzzy（无需 C++ 编译器，更稳定）
+          pip install requests websocket-client rapidfuzz
           
       - name: Restore previous state
         id: cache-state
-        uses: actions/cache@v3
+        uses: actions/cache@v4  # 升级到 v4（支持 Node.js 24）
         with:
           path: data/last_check.json
           key: sdn-monitor-state-${{ github.run_id }}
@@ -34,12 +38,14 @@ jobs:
         env:
           WECOM_BOT_ID: ${{ secrets.WECOM_BOT_ID }}
           WECOM_SECRET: ${{ secrets.WECOM_SECRET }}
-          WECOM_RECV_ID: ${{ secrets.WECOM_RECV_ID }}  # 接收消息的群聊ID或用户ID
+          WECOM_RECV_ID: ${{ secrets.WECOM_RECV_ID }}
         run: |
           python scripts/check_sdn.py
           
-      - name: Save current state
-        uses: actions/cache@v3
-        with:
-          path: data/last_check.json
-          key: sdn-monitor-state-${{ github.run_id }}
+      - name: Debug - List files if failed
+        if: failure()
+        run: |
+          echo "=== Debugging ==="
+          ls -la
+          ls -la data/ || echo "data dir not found"
+          cat data/last_check.json 2>/dev/null || echo "No state file"
