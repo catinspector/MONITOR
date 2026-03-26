@@ -70,21 +70,40 @@ def fetch_sdn_list():
         return None
 
 
+import csv
+import io
+
 def parse_sdn_data(csv_text):
-    """解析 CSV"""
-    lines = csv_text.strip().split('\n')
+    """使用标准 CSV 解析器（处理字段内逗号）"""
+    print("   解析 CSV...")
     entities = []
     
-    for line in lines[1:]:  # 跳过表头
-        values = line.split(',')
-        if len(values) >= 3:
+    # 使用 csv.reader 正确处理引号内的逗号
+    reader = csv.reader(io.StringIO(csv_text))
+    
+    header = next(reader)  # 跳过表头
+    print(f"   表头: {header}")
+    
+    for i, row in enumerate(reader):
+        if len(row) >= 3:
             entities.append({
-                'name': values[0].strip('"'),
-                'type': values[1].strip('"'),
-                'programs': values[2].strip('"')
+                'name': row[0].strip(),
+                'type': row[1].strip(),
+                'programs': row[2].strip()
             })
+        elif row:  # 如果解析出来字段不足，打印调试
+            if i < 5:  # 只打印前5个异常行
+                print(f"   警告: 第{i}行字段不足: {row}")
     
     print(f"   📊 解析完成：共 {len(entities)} 个实体")
+    
+    # 立即搜索验证
+    kovrov_list = [e['name'] for e in entities if 'kovrov' in e['name'].lower()]
+    print(f"   🔍 验证: 找到 {len(kovrov_list)} 个 Kovrov 实体")
+    if kovrov_list:
+        for name in kovrov_list[:3]:
+            print(f"      - {name}")
+    
     return entities
 
 
