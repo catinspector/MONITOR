@@ -2,15 +2,15 @@
   "companies": [
     {
       "name": "State Atomic Energy Corporation",
-      "aliases": ["Rosatom"],
+      "aliases": ["Rosatom"]
     },
     {
       "name": "atomic energy power corporation",
-      "aliases": ["Atomenergoprom"],
+      "aliases": ["Atomenergoprom"]
     },
     {
       "name": "Kovrov Mechanical Plant",
-      "aliases": ["Kovrov Mechanical Plant"],
+      "aliases": ["Kovrov Mechanical Plant"]
     }
   ],
 }
