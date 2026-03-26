@@ -1,0 +1,45 @@
+name: SDN Sanctions Monitor
+
+on:
+  schedule:
+    # 北京时间工作日上午 9:00（UTC 01:00），OFAC 通常在前一天晚间更新
+    - cron: '0 1 * * 1-5'
+  workflow_dispatch:  # 支持手动触发
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          
+      - name: Install dependencies
+        run: |
+          pip install requests websocket-client fuzzywuzzy python-Levenshtein
+          
+      - name: Restore previous state
+        id: cache-state
+        uses: actions/cache@v3
+        with:
+          path: data/last_check.json
+          key: sdn-monitor-state-${{ github.run_id }}
+          restore-keys: |
+            sdn-monitor-state-
+            
+      - name: Run SDN check
+        env:
+          WECOM_BOT_ID: ${{ secrets.WECOM_BOT_ID }}
+          WECOM_SECRET: ${{ secrets.WECOM_SECRET }}
+          WECOM_RECV_ID: ${{ secrets.WECOM_RECV_ID }}  # 接收消息的群聊ID或用户ID
+        run: |
+          python scripts/check_sdn.py
+          
+      - name: Save current state
+        uses: actions/cache@v3
+        with:
+          path: data/last_check.json
+          key: sdn-monitor-state-${{ github.run_id }}
