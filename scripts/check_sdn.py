@@ -1,10 +1,9 @@
-import csv
-import io
 import json
 import requests
 import os
 import sys
 import traceback
+import xml.etree.ElementTree as ET
 from datetime import datetime
 from rapidfuzz import fuzz
 
@@ -13,7 +12,7 @@ from rapidfuzz import fuzz
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(SCRIPT_DIR)
 
-# 配置
+# OFAC 官方 SDN XML
 OPEN_SANCTIONS_URL = "https://www.treasury.gov/ofac/downloads/sdn.xml"
 STATE_FILE = os.path.join(ROOT_DIR, "data", "last_check.json")
 CONFIG_FILE = os.path.join(ROOT_DIR, "config", "watchlist.json")
@@ -58,10 +57,10 @@ def save_state(state):
 
 
 def fetch_sdn_list():
-    """获取 SDN 清单"""
+    """获取 OFAC SDN XML"""
     print("步骤 2: 获取 SDN 数据...")
     try:
-        response = requests.get(OPEN_SANCTIONS_URL, timeout=30)
+        response = requests.get(OPEN_SANCTIONS_URL, timeout=60)
         response.raise_for_status()
         print(f"   ✅ 获取成功，数据大小: {len(response.text)} 字符")
         return response.text
@@ -69,8 +68,6 @@ def fetch_sdn_list():
         print(f"   ❌ 获取失败: {e}")
         return None
 
-
-import xml.etree.ElementTree as ET
 
 def parse_sdn_data(xml_text):
     """解析 OFAC 官方 SDN XML"""
@@ -83,14 +80,16 @@ def parse_sdn_data(xml_text):
         return []
     
     entities = []
+    
+    # 获取发布日期
     publish_date = root.find('publishInformation/Publish_Date')
     if publish_date is not None:
-        print(f"   📅 SDN 清单日期: {publish_date.text}")
+        print(f"   📅 SDN 清单发布日期: {publish_date.text}")
     
     # 遍历所有 sdnEntry
     for entry in root.findall('sdnEntry'):
         try:
-            # 获取名称（公司通常在 lastName，个人是 firstName + lastName）
+            # 获取名称
             first_name = entry.find('firstName')
             last_name = entry.find('lastName')
             
@@ -106,11 +105,11 @@ def parse_sdn_data(xml_text):
             if not name:
                 continue
             
-            # 获取类型（Entity, Individual, Vessel, Aircraft）
+            # 获取类型
             sdn_type = entry.find('sdnType')
             entity_type = sdn_type.text.strip() if sdn_type is not None else 'Unknown'
             
-            # 获取制裁项目（program）
+            # 获取制裁项目
             programs = []
             program_list = entry.find('programList')
             if program_list is not None:
@@ -118,7 +117,7 @@ def parse_sdn_data(xml_text):
                     if prog.text:
                         programs.append(prog.text.strip())
             
-            # 获取别名（akaList）
+            # 获取别名
             aliases = []
             aka_list = entry.find('akaList')
             if aka_list is not None:
@@ -138,54 +137,39 @@ def parse_sdn_data(xml_text):
                     if aka_name and aka_name != name:
                         aliases.append(aka_name)
             
-            # 获取地址（addressList）用于辅助识别
-            addresses = []
-            address_list = entry.find('addressList')
-            if address_list is not None:
-                for addr in address_list.findall('address'):
-                    addr_str = ''
-                    for field in ['address1', 'address2', 'city', 'country']:
-                        elem = addr.find(field)
-                        if elem is not None and elem.text:
-                            addr_str += elem.text.strip() + ' '
-                    if addr_str:
-                        addresses.append(addr_str.strip())
-            
             entities.append({
                 'name': name,
                 'aliases': aliases,
                 'type': entity_type,
-                'programs': '; '.join(programs) if programs else 'SDN',
-                'addresses': addresses
+                'programs': '; '.join(programs) if programs else 'SDN'
             })
             
-        except Exception as e:
-            continue  # 跳过解析失败的条目
+        except Exception:
+            continue
     
     print(f"   📊 解析完成：共 {len(entities)} 个实体")
     
-    # 验证 Kovrov
+    # 验证
     kovrov_list = [e for e in entities if 'kovrov' in e['name'].lower()]
     print(f"   🔍 验证: 找到 {len(kovrov_list)} 个 Kovrov")
     if kovrov_list:
         print(f"      例如: {kovrov_list[0]['name']}")
-        print(f"      别名: {kovrov_list[0]['aliases'][:3]}...")
+        print(f"      别名: {kovrov_list[0]['aliases'][:3]}")
     
     return entities
 
 
 def check_matches(entities, watchlist):
-    """匹配逻辑 - 严格阈值，避免误报"""
+    """匹配检查"""
     print("步骤 3: 匹配检查...")
     matches = []
     seen = set()
     
-    # 常见误报词（公司类型词，不应该作为匹配依据）
-    stop_words = ['corporation', 'company', 'inc', 'ltd', 'llc', 'group', 'enterprise', 'trading']
+    # 停用词（避免误报）
+    stop_words = ['corporation', 'company', 'inc', 'ltd', 'llc', 'trading', 'enterprise']
     
     for entity in entities:
-        csv_identifiers = [entity['name']]
-        csv_identifiers.extend(entity.get('aliases', []))
+        csv_identifiers = [entity['name']] + entity.get('aliases', [])
         
         for company in watchlist['companies']:
             config_identifiers = [company['name']]
@@ -197,36 +181,35 @@ def check_matches(entities, watchlist):
             matched = False
             for config_id in config_identifiers:
                 for csv_id in csv_identifiers:
-                    # 严格模糊匹配（提高阈值到 90%）
+                    # 模糊匹配
                     score = fuzz.token_set_ratio(config_id, csv_id)
                     
-                    # 严格子串匹配：只有长词（>10字符）才允许子串匹配
-                    config_lower = config_id.lower().strip()
-                    csv_lower = csv_id.lower().strip()
+                    # 严格子串匹配（移除停用词后）
+                    config_lower = config_id.lower()
+                    csv_lower = csv_id.lower()
                     
-                    # 移除停用词后再检查子串
+                    # 清理停用词
                     config_clean = ' '.join([w for w in config_lower.split() if w not in stop_words])
                     csv_clean = ' '.join([w for w in csv_lower.split() if w not in stop_words])
                     
-                    # 严格子串：长度>10 且移除停用词后仍有包含关系
                     strict_contained = (
                         len(config_clean) > 10 and 
                         (config_clean in csv_clean or csv_clean in config_clean)
                     )
                     
-                    threshold = company.get('confidence_threshold', 0.9) * 100  # 默认90%
+                    threshold = company.get('confidence_threshold', 0.9) * 100
                     
                     if (score >= threshold or strict_contained) and entity['name'] not in seen:
                         matches.append({
                             'watch_name': company['name'],
                             'matched_name': entity['name'],
-                            'matched_aliases': entity.get('aliases', []),
+                            'matched_aliases': entity.get('aliases', [])[:3],  # 只存前3个别名
                             'type': entity['type'],
-                            'programs': entity.get('programs', 'SDN'),
+                            'programs': entity['programs'],
                             'score': round(score, 1)
                         })
                         seen.add(entity['name'])
-                        print(f"   ✓ 命中: {entity['name']} (匹配: '{config_id}' vs '{csv_id}', 得分: {score}%)")
+                        print(f"   ✓ 命中: {entity['name']} (得分: {score}%)")
                         matched = True
                         break
                 if matched:
@@ -239,7 +222,7 @@ def check_matches(entities, watchlist):
 
 
 def format_markdown_message(all_matches, new_matches, check_time):
-    """格式化 Markdown 消息"""
+    """格式化消息"""
     lines = []
     lines.append("## 🚨 SDN 制裁清单监测报告")
     lines.append("")
@@ -254,8 +237,8 @@ def format_markdown_message(all_matches, new_matches, check_time):
         new_flag = "🔴 " if is_new else ""
         
         lines.append(f"{idx}. {new_flag}**{match['watch_name']}** → `{match['matched_name']}`")
-        if match.get('matched_alias'):
-            lines.append(f"   - 别名：{match['matched_alias']}")
+        if match.get('matched_aliases'):
+            lines.append(f"   - 别名：{', '.join(match['matched_aliases'])}")
         lines.append(f"   - 类型：{match['type']}")
         lines.append(f"   - 制裁项目：{match['programs']}")
         lines.append(f"   - 匹配度：{match['score']}%")
@@ -263,7 +246,7 @@ def format_markdown_message(all_matches, new_matches, check_time):
     
     lines.append("---")
     lines.append(f"⏰ 检查时间：{check_time}")
-    lines.append("📡 数据来源：US OFAC SDN List (OpenSanctions)")
+    lines.append("📡 数据来源：US OFAC SDN List (Official)")
     
     return "\n".join(lines)
 
@@ -282,15 +265,16 @@ def main():
         if not sdn_data:
             sys.exit(1)
         
+        # 3. 解析 XML
         entities = parse_sdn_data(sdn_data)
         if not entities:
-            print("错误：未解析到实体")
+            print("❌ 未解析到实体")
             sys.exit(1)
         
-        # 3. 匹配检查
+        # 4. 匹配
         current_matches = check_matches(entities, config)
         
-        # 4. 检测新增（仅用于标记，不控制推送）
+        # 5. 检测新增
         print("步骤 4: 检测历史记录...")
         last_state = load_last_state()
         prev_names = {m['matched_name'] for m in last_state.get('matched_entities', [])}
@@ -301,7 +285,7 @@ def main():
         else:
             print(f"   无新增命中")
         
-        # 5. 关键：只要有命中就推送（不管是否新增）
+        # 6. 推送（只要有命中就推送）
         if current_matches:
             print(f"步骤 5: 发送企业微信通知（发现 {len(current_matches)} 个命中）...")
             
@@ -325,7 +309,7 @@ def main():
         else:
             print("步骤 5: 未命中任何监测对象，跳过推送")
         
-        # 6. 保存状态
+        # 7. 保存状态
         print("步骤 6: 保存状态...")
         save_state({
             "last_check": datetime.now().isoformat(),
