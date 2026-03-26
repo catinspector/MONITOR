@@ -89,10 +89,44 @@ def parse_sdn_data(csv_text):
 
 
 def check_matches(entities, watchlist):
-    """模糊匹配"""
+    """模糊匹配 - 带强制诊断"""
     print("步骤 3: 匹配检查...")
     matches = []
     
+    # ===== 强制诊断：查找 Kovrov =====
+    print("\n   🔍 强制搜索 'Kovrov'（不区分大小写）：")
+    kovrov_entities = [e for e in entities if 'kovrov' in e['name'].lower()]
+    print(f"   找到 {len(kovrov_entities)} 个包含 'kovrov' 的实体：")
+    for e in kovrov_entities[:5]:
+        print(f"     - '{e['name']}' (长度:{len(e['name'])})")
+        # 显示每个字符的ASCII码，检查隐藏字符
+        print(f"       ASCII: {[ord(c) for c in e['name'][:20]]}")
+    
+    # ===== 强制诊断：直接精确匹配测试 =====
+    print("\n   🔍 测试配置中的名称：")
+    for company in watchlist['companies']:
+        target = company['name']
+        print(f"     查找: '{target}'")
+        
+        # 方法1：直接子串匹配
+        found_substring = [e for e in entities if target.lower() in e['name'].lower()]
+        print(f"       子串匹配: 找到 {len(found_substring)} 个")
+        if found_substring:
+            print(f"       例如: '{found_substring[0]['name']}'")
+        
+        # 方法2：完全相等（去除首尾空格后）
+        found_exact = [e for e in entities if target.strip().lower() == e['name'].strip().lower()]
+        print(f"       完全匹配: 找到 {len(found_exact)} 个")
+        
+        # 方法3：模糊匹配（显示实际得分）
+        if entities:
+            sample = entities[0]
+            from rapidfuzz import fuzz
+            score = fuzz.ratio(target, sample['name'])
+            print(f"       与第一个实体 '{sample['name']}' 的得分: {score}")
+    
+    # ===== 原始匹配逻辑（保持不变）=====
+    print("\n   🎯 执行标准匹配逻辑...")
     for entity in entities:
         for company in watchlist['companies']:
             aliases = company.get('aliases', [])
@@ -102,8 +136,14 @@ def check_matches(entities, watchlist):
             candidates = [company['name']] + aliases
             
             for candidate in candidates:
+                from rapidfuzz import fuzz
                 score = fuzz.token_set_ratio(candidate, entity['name'])
                 threshold = company.get('confidence_threshold', 0.75) * 100
+                
+                # 如果包含关键词，强制打印得分（即使未命中）
+                if 'kovrov' in entity['name'].lower() or 'kovrov' in candidate.lower():
+                    if score > 50:  # 只要得分>50就打印
+                        print(f"       对比: '{candidate}' vs '{entity['name']}' = {score}%")
                 
                 if score >= threshold and score >= watchlist.get('min_match_score', 70):
                     matches.append({
@@ -113,10 +153,10 @@ def check_matches(entities, watchlist):
                         'programs': entity['programs'],
                         'score': round(score, 1)
                     })
-                    print(f"   ✓ 命中: {entity['name']} (得分: {score}%)")
+                    print(f"   ✓ 命中: {entity['name']} ({score}%)")
                     break
     
-    print(f"   🎯 总计发现 {len(matches)} 个匹配")
+    print(f"\n   总计匹配: {len(matches)} 个")
     return matches
 
 
