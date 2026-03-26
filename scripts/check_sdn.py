@@ -112,38 +112,48 @@ def parse_sdn_data(csv_text):
 
 
 def check_matches(entities, watchlist):
-    """匹配逻辑 - 同时检查 CSV 的 name 和所有 aliases"""
+    """匹配逻辑 - 严格阈值，避免误报"""
     print("步骤 3: 匹配检查...")
     matches = []
     seen = set()
     
+    # 常见误报词（公司类型词，不应该作为匹配依据）
+    stop_words = ['corporation', 'company', 'inc', 'ltd', 'llc', 'group', 'enterprise', 'trading']
+    
     for entity in entities:
-        # CSV 侧：name + 所有拆分的 aliases
         csv_identifiers = [entity['name']]
         csv_identifiers.extend(entity.get('aliases', []))
         
         for company in watchlist['companies']:
-            # 配置侧：name + aliases
             config_identifiers = [company['name']]
             aliases = company.get('aliases', [])
             if isinstance(aliases, str):
                 aliases = [aliases]
             config_identifiers.extend(aliases)
             
-            # 双重循环匹配
             matched = False
             for config_id in config_identifiers:
                 for csv_id in csv_identifiers:
+                    # 严格模糊匹配（提高阈值到 90%）
                     score = fuzz.token_set_ratio(config_id, csv_id)
                     
-                    # 子串匹配
+                    # 严格子串匹配：只有长词（>10字符）才允许子串匹配
                     config_lower = config_id.lower().strip()
                     csv_lower = csv_id.lower().strip()
-                    contained = config_lower in csv_lower or csv_lower in config_lower
                     
-                    threshold = company.get('confidence_threshold', 0.75) * 100
+                    # 移除停用词后再检查子串
+                    config_clean = ' '.join([w for w in config_lower.split() if w not in stop_words])
+                    csv_clean = ' '.join([w for w in csv_lower.split() if w not in stop_words])
                     
-                    if (score >= threshold or contained) and entity['name'] not in seen:
+                    # 严格子串：长度>10 且移除停用词后仍有包含关系
+                    strict_contained = (
+                        len(config_clean) > 10 and 
+                        (config_clean in csv_clean or csv_clean in config_clean)
+                    )
+                    
+                    threshold = company.get('confidence_threshold', 0.9) * 100  # 默认90%
+                    
+                    if (score >= threshold or strict_contained) and entity['name'] not in seen:
                         matches.append({
                             'watch_name': company['name'],
                             'matched_name': entity['name'],
