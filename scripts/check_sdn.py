@@ -71,17 +71,32 @@ def fetch_sdn_list():
 
 
 def parse_sdn_data(csv_text):
-    """
-    解析 CSV - OpenSanctions simple.csv 格式：
-    第1列: id, 第2列: schema, 第3列: name, 第4列: alias
-    """
+    """解析 CSV - 带原始调试"""
     print("   解析 CSV...")
+    
+    # 先打印前 5 行原始内容看格式
+    print("   [调试] 原始 CSV 前5行:")
+    lines = csv_text.split('\n')
+    for i, line in enumerate(lines[:6]):
+        print(f"      行{i}: {line[:150]}")
+    
     entities = []
-    
     reader = csv.reader(io.StringIO(csv_text))
-    next(reader)  # 跳过表头
+    header = next(reader)
+    print(f"   [调试] 表头: {header}")
+    print(f"   [调试] 表头列数: {len(header)}")
     
-    for row in reader:
+    for i, row in enumerate(reader):
+        if i < 3:  # 只打印前3行数据看结构
+            print(f"   [调试] 数据行{i}: {row}")
+            print(f"      列数: {len(row)}")
+            if len(row) >= 3:
+                print(f"      第1列: '{row[0]}'")
+                print(f"      第2列: '{row[1]}'")
+                print(f"      第3列: '{row[2]}'")
+            if len(row) >= 4:
+                print(f"      第4列: '{row[3]}'")
+        
         if len(row) >= 4:
             entities.append({
                 'id': row[0].strip(),
@@ -99,12 +114,16 @@ def parse_sdn_data(csv_text):
     
     print(f"   📊 解析完成：共 {len(entities)} 个实体")
     
-    # 验证 Kovrov
-    kovrov_list = [e for e in entities if 'kovrov' in e['name'].lower()]
+    # 再次搜索 Kovrov（不区分大小写）
+    kovrov_list = [e for e in entities if 'kovrov' in e.get('name', '').lower()]
     print(f"   🔍 验证: 找到 {len(kovrov_list)} 个 Kovrov")
-    if kovrov_list:
-        print(f"      例如: {kovrov_list[0]['name']}")
-        print(f"      alias: {kovrov_list[0].get('alias', '无')}")
+    
+    # 如果没有找到，打印包含 'Mechanical' 的看是否有数据
+    if not kovrov_list:
+        mech_list = [e for e in entities if 'mechanical' in e.get('name', '').lower()]
+        print(f"   🔍 备用验证: 找到 {len(mech_list)} 个 Mechanical")
+        if mech_list:
+            print(f"      例如: {mech_list[0]}")
     
     return entities
 
