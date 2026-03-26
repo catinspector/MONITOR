@@ -233,4 +233,38 @@ def main():
                 sys.exit(1)
             
             try:
-                bot = WeComBot(bot_id=bot_id, secret=secret, recv_id=recv_id
+                # 修复：补全右括号
+                bot = WeComBot(bot_id=bot_id, secret=secret, recv_id=recv_id)
+                
+                # 构建 Markdown 格式消息
+                markdown_msg = format_markdown_message(current_matches, new_matches)
+                
+                result = bot.send_markdown_message(markdown_msg)
+                print("   ✅ 推送成功")
+                
+            except Exception as e:
+                print(f"   ❌ 推送失败: {e}")
+                traceback.print_exc()
+        else:
+            print("步骤 5: 无需推送（无新增命中）")
+        
+        # 6. 保存状态
+        print("步骤 6: 保存状态...")
+        state_data = {
+            "last_check": datetime.now().isoformat(),
+            "entity_count": len(entities),
+            "matched_entities": current_matches
+        }
+        save_state(state_data)
+        
+        print("=" * 50)
+        print("✅ 监测任务完成")
+        
+    except Exception as e:
+        print(f"❌ 任务执行失败: {e}")
+        traceback.print_exc()
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
