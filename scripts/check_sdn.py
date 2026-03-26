@@ -71,139 +71,97 @@ def fetch_sdn_list():
 
 
 def parse_sdn_data(csv_text):
-    """解析 CSV - 带原始调试"""
+    """解析 CSV - 拆分 aliases 列中的多个别名"""
     print("   解析 CSV...")
-    
-    # 先打印前 5 行原始内容看格式
-    print("   [调试] 原始 CSV 前5行:")
-    lines = csv_text.split('\n')
-    for i, line in enumerate(lines[:6]):
-        print(f"      行{i}: {line[:150]}")
-    
     entities = []
-    reader = csv.reader(io.StringIO(csv_text))
-    header = next(reader)
-    print(f"   [调试] 表头: {header}")
-    print(f"   [调试] 表头列数: {len(header)}")
     
-    for i, row in enumerate(reader):
-        if i < 3:  # 只打印前3行数据看结构
-            print(f"   [调试] 数据行{i}: {row}")
-            print(f"      列数: {len(row)}")
-            if len(row) >= 3:
-                print(f"      第1列: '{row[0]}'")
-                print(f"      第2列: '{row[1]}'")
-                print(f"      第3列: '{row[2]}'")
-            if len(row) >= 4:
-                print(f"      第4列: '{row[3]}'")
-        
+    reader = csv.reader(io.StringIO(csv_text))
+    next(reader)  # 跳过表头
+    
+    for row in reader:
         if len(row) >= 4:
+            # 关键修复：aliases 列可能包含多个别名，用分号分隔
+            name = row[2].strip()
+            aliases_str = row[3].strip()
+            
+            # 拆分为列表（如果没有别名则为空列表）
+            aliases_list = [a.strip() for a in aliases_str.split(';') if a.strip()]
+            
             entities.append({
                 'id': row[0].strip(),
                 'type': row[1].strip(),
-                'name': row[2].strip(),
-                'alias': row[3].strip()
-            })
-        elif len(row) >= 3:
-            entities.append({
-                'id': row[0].strip(),
-                'type': row[1].strip(),
-                'name': row[2].strip(),
-                'alias': ''
+                'name': name,
+                'aliases': aliases_list  # 现在是列表
             })
     
     print(f"   📊 解析完成：共 {len(entities)} 个实体")
     
-    # 再次搜索 Kovrov（不区分大小写）
-    kovrov_list = [e for e in entities if 'kovrov' in e.get('name', '').lower()]
-    print(f"   🔍 验证: 找到 {len(kovrov_list)} 个 Kovrov")
+    # 验证：同时搜索 name 和 aliases
+    kovrov_list = []
+    for e in entities:
+        all_names = [e['name']] + e['aliases']
+        if any('kovrov' in n.lower() for n in all_names):
+            kovrov_list.append(e)
     
-    # 如果没有找到，打印包含 'Mechanical' 的看是否有数据
-    if not kovrov_list:
-        mech_list = [e for e in entities if 'mechanical' in e.get('name', '').lower()]
-        print(f"   🔍 备用验证: 找到 {len(mech_list)} 个 Mechanical")
-        if mech_list:
-            print(f"      例如: {mech_list[0]}")
+    print(f"   🔍 验证: 找到 {len(kovrov_list)} 个 Kovrov")
+    if kovrov_list:
+        print(f"      例如: {kovrov_list[0]['name']}")
+        print(f"      别名: {kovrov_list[0]['aliases']}")
     
     return entities
 
 
 def check_matches(entities, watchlist):
-    """极端调试版本 - 打印所有比较过程"""
-    print("步骤 3: 匹配检查（调试模式）...")
+    """匹配逻辑 - 同时检查 CSV 的 name 和所有 aliases"""
+    print("步骤 3: 匹配检查...")
     matches = []
     seen = set()
     
-    # 先打印配置内容确认
-    print(f"   [调试] 配置公司数: {len(watchlist['companies'])}")
-    for company in watchlist['companies']:
-        print(f"   [调试] 监测对象: {company['name']}, aliases: {company.get('aliases', [])}")
-    
-    # 找前5个包含 Kovrov 的实体用于调试
-    kovrov_entities = [e for e in entities if 'kovrov' in e['name'].lower()]
-    print(f"   [调试] CSV 中找到 {len(kovrov_entities)} 个 Kovrov 实体")
-    if kovrov_entities:
-        test_entity = kovrov_entities[0]
-        print(f"   [调试] 测试实体 name: '{test_entity['name']}'")
-        print(f"   [调试] 测试实体 alias: '{test_entity['alias']}'")
-        print(f"   [调试] 测试实体 name 长度: {len(test_entity['name'])}")
-        print(f"   [调试] 测试实体 name ASCII: {[ord(c) for c in test_entity['name']]}")
-    
     for entity in entities:
-        if 'kovrov' not in entity['name'].lower():
-            continue  # 只调试 Kovrov 相关
-        
-        print(f"\n   [详细调试] 检查实体: '{entity['name']}'")
-        
-        csv_ids = [entity['name']]
-        if entity.get('alias'):
-            csv_ids.append(entity['alias'])
+        # CSV 侧：name + 所有拆分的 aliases
+        csv_identifiers = [entity['name']]
+        csv_identifiers.extend(entity.get('aliases', []))
         
         for company in watchlist['companies']:
-            config_ids = [company['name']]
+            # 配置侧：name + aliases
+            config_identifiers = [company['name']]
             aliases = company.get('aliases', [])
             if isinstance(aliases, str):
                 aliases = [aliases]
-            config_ids.extend(aliases)
+            config_identifiers.extend(aliases)
             
-            print(f"      对比公司: {company['name']}")
-            
-            for config_id in config_ids:
-                for csv_id in csv_ids:
-                    # 计算各种匹配方式
+            # 双重循环匹配
+            matched = False
+            for config_id in config_identifiers:
+                for csv_id in csv_identifiers:
                     score = fuzz.token_set_ratio(config_id, csv_id)
+                    
+                    # 子串匹配
                     config_lower = config_id.lower().strip()
                     csv_lower = csv_id.lower().strip()
-                    
-                    # 多种包含检查
                     contained = config_lower in csv_lower or csv_lower in config_lower
-                    exact_match = config_lower == csv_lower
                     
-                    print(f"         对比: '{config_id}' vs '{csv_id}'")
-                    print(f"            模糊得分: {score}, 子串匹配: {contained}, 完全匹配: {exact_match}")
-                    
-                    # 临时降低阈值到 50 测试
                     threshold = company.get('confidence_threshold', 0.75) * 100
-                    if score >= threshold or contained:
-                        print(f"            >>> 应该命中! <<<")
-                        if entity['name'] not in seen:
-                            matches.append({
-                                'watch_name': company['name'],
-                                'matched_name': entity['name'],
-                                'matched_alias': entity.get('alias', ''),
-                                'type': entity['type'],
-                                'programs': entity['programs'],
-                                'score': round(score, 1)
-                            })
-                            seen.add(entity['name'])
-                            print(f"            >>> 已添加到匹配列表 <<<")
+                    
+                    if (score >= threshold or contained) and entity['name'] not in seen:
+                        matches.append({
+                            'watch_name': company['name'],
+                            'matched_name': entity['name'],
+                            'matched_aliases': entity.get('aliases', []),
+                            'type': entity['type'],
+                            'programs': entity.get('programs', 'SDN'),
+                            'score': round(score, 1)
+                        })
+                        seen.add(entity['name'])
+                        print(f"   ✓ 命中: {entity['name']} (匹配: '{config_id}' vs '{csv_id}', 得分: {score}%)")
+                        matched = True
                         break
-                if entity['name'] in seen:
+                if matched:
                     break
-            if entity['name'] in seen:
+            if matched:
                 break
     
-    print(f"\n   🎯 调试结束，总计匹配: {len(matches)} 个")
+    print(f"   🎯 总计发现 {len(matches)} 个匹配")
     return matches
 
 
