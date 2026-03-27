@@ -1,11 +1,9 @@
 name: SDN制裁名单定时监测
 on:
-  # 👇 定时任务（北京时间 9:00 / 16:00 自动执行）
   schedule:
-    - cron: '0 1 * * *'
-    - cron: '0 7 * * *'
-  # 👇 手动触发按钮（核心！点击即可运行）
-  workflow_dispatch:
+    - cron: '0 1 * * *'   # 北京时间 09:00
+    - cron: '0 7 * * *'   # 北京时间 16:00
+  workflow_dispatch:      # 支持手动触发
 
 jobs:
   check-sdn:
@@ -21,7 +19,8 @@ jobs:
       - name: 安装项目依赖
         run: pip install -r requirements.txt
 
+      # 👇 修复路径：scripts/check_sdn.py
       - name: 运行监测脚本
-        run: python check_sdn.py
+        run: python scripts/check_sdn.py
         env:
           PYTHONUNBUFFERED: 1
