@@ -1,29 +1,60 @@
 name: SDN制裁名单定时监测
-on:
-  schedule:
-    - cron: '0 1 * * *'   # 北京时间 09:00
-    - cron: '35 5 * * *'   # 北京时间
-    - cron: '0 8 * * *'   # 北京时间 16:00
 
+on:
+  # 保留schedule作为fallback，但建议使用EventBridge触发
+  schedule:
+    - cron: '0 1 * * *'    # 北京时间 09:00
+    - cron: '0 8 * * *'    # 北京时间 16:00
   workflow_dispatch:
+    inputs:
+      source:
+        description: '触发来源'
+        required: false
+        default: 'manual'
+      force_notify:
+        description: '强制发送通知(无论是否有变更)'
+        required: false
+        default: 'false'
+
+# 防止同时运行多个实例导致重复通知
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   check-sdn:
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # 防止脚本hang住消耗额度
+    
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1  # 浅克隆加速
 
+      # 缓存Python依赖，避免每次重新安装
       - name: 配置Python环境
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: 'pip'  # 自动缓存pip依赖
 
       - name: 安装项目依赖
-        run: pip install -r requirements.txt
+        run: |
+          pip install -r requirements.txt
+          # 显示已安装包版本，便于调试
+          pip list
 
       - name: 运行监测脚本
+        id: sdn_check
         run: python scripts/check_sdn.py
         env:
           PYTHONUNBUFFERED: 1
-          # 👇 注入企业微信密钥（从GitHub Secrets读取）
           WECOM_WEBHOOK_KEY: ${{ secrets.WECOM_WEBHOOK_KEY }}
+          FORCE_NOTIFY: ${{ github.event.inputs.force_notify || 'false' }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+
+      # 记录运行状态（便于EventBridge监控）
+      - name: 上报运行状态
+        if: always()
+        run: |
+          echo "::notice::SDN监测完成，状态: ${{ job.status }}"
