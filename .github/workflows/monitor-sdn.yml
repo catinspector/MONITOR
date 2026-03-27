@@ -2,9 +2,6 @@ name: SDN制裁名单定时监测
 
 on:
   # 保留schedule作为fallback，但建议使用EventBridge触发
-  schedule:
-    - cron: '0 1 * * *'    # 北京时间 09:00
-    - cron: '0 8 * * *'    # 北京时间 16:00
   workflow_dispatch:
     inputs:
       source:
