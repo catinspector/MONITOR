@@ -3,7 +3,7 @@ on:
   schedule:
     - cron: '0 1 * * *'   # 北京时间 09:00
     - cron: '0 7 * * *'   # 北京时间 16:00
-  workflow_dispatch:      # 支持手动触发
+  workflow_dispatch:      # 手动触发
 
 jobs:
   check-sdn:
@@ -19,8 +19,9 @@ jobs:
       - name: 安装项目依赖
         run: pip install -r requirements.txt
 
-      # 👇 修复路径：scripts/check_sdn.py
       - name: 运行监测脚本
         run: python scripts/check_sdn.py
         env:
           PYTHONUNBUFFERED: 1
+          # 👇 注入企业微信密钥（从GitHub Secrets读取）
+          WECOM_WEBHOOK_KEY: ${{ secrets.WECOM_WEBHOOK_KEY }}
