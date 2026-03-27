@@ -2,11 +2,12 @@ name: SDN制裁名单定时监测
 on:
   schedule:
     - cron: '0 1 * * *'   # 北京时间 09:00
-    - cron: '42 2 * * *'   # 北京时间
-    - cron: '45 2 * * *'   # 北京时间
-    - cron: '50 2 * * *'   # 北京时间
-    - cron: '53 2 * * *'   # 北京时间
     - cron: '0 8 * * *'   # 北京时间 16:00
+    - cron: '10 3 * * *'   # 北京时间
+    - cron: '12 3 * * *'   # 北京时间
+    - cron: '15 3 * * *'   # 北京时间
+    - cron: '18 3 * * *'   # 北京时间
+  workflow_dispatch:
 
 jobs:
   check-sdn:
