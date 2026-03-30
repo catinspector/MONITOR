@@ -1,0 +1,20 @@
+{
+  "companies": [
+    {
+      "name": "State Atomic Energy Corporation",
+      "aliases": ["Rosatom"]
+    },
+    {
+      "name": "Atomic Energy Power Corporation",
+      "aliases": ["Atomenergoprom"]
+    },
+    {
+      "name": "Komarov",
+      "aliases": ["Komarov"]
+    },
+    {
+      "name": "Rebov",
+      "aliases": ["Rebov"]
+    }
+  ]
+}
