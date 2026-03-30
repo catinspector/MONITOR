@@ -145,11 +145,11 @@ def check_matches(entities, watchlist):
                 seen_sdn.add(entity['name'])
     return matches
 
+
 def format_markdown_message(all_matches, new_matches, check_time):
     """
-    格式化企业微信 Markdown 消息 
+    格式化消息：增加“触发关键词”显示
     """
-    # 标题与统计
     lines = [
         "### 🚨 SDN 制裁清单监测报告",
         f"> 📊 监测结果：发现 **{len(all_matches)}** 个命中",
@@ -157,34 +157,31 @@ def format_markdown_message(all_matches, new_matches, check_time):
         ""
     ]
     
-    # 记录所有新增命中的名称，用于比对
     new_names = {m['matched_name'] for m in new_matches}
     
     for idx, match in enumerate(all_matches, 1):
-        # 判定是否为新增，显示对应的图标
         is_new = match['matched_name'] in new_names
         status_icon = "🔴" if is_new else "⚪"
         
-        # 第一行：序号、状态标识、监控名 -> 命中名
+        # 第一行：状态与监控主名
         lines.append(f"{idx}. {status_icon} **{match['watch_name']}**")
+        # 第二行：命中详情（橙色显示官方名）
         lines.append(f"　 ➔ <font color=\"warning\">{match['matched_name']}</font>")
         
-        # 详细信息列表（使用全角空格对齐）
-        if match.get('matched_aliases'):
-            aliases_str = ", ".join(match['matched_aliases'])
-            lines.append(f"　 - **别名**：{aliases_str}")
-            
+        # 详细信息（使用全角空格对齐）
+        # 将触发关键词加粗并高亮显示
+        lines.append(f"　 - **触发词**：`<font color=\"info\">{match['trigger_term']}</font>`")
         lines.append(f"　 - **类型**：{match['type']}")
         lines.append(f"　 - **项目**：{match['programs']}")
         lines.append(f"　 - **匹配度**：`{match['score']}%`")
-        lines.append("") # 条目间空行
+        lines.append("") 
 
-    # 页脚
     lines.append("---")
     lines.append(f"<font color=\"comment\">⏰ 检查时间：{check_time}</font>")
     lines.append("<font color=\"comment\">📡 数据来源：US OFAC SDN List</font>")
     
     return "\n".join(lines)
+
 
 def main():
     print(f"🚀 SDN 监测任务开始 - {datetime.now()}")
