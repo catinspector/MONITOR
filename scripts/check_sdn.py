@@ -96,13 +96,12 @@ def parse_sdn_data(xml_text):
         return []
 
 def check_matches(entities, watchlist):
-    """【保持新逻辑】判定逻辑：所有 name 或 alias 命中任意一个就算成功"""
     print("步骤 3: 匹配检查...")
     matches = []
     seen_sdn = set()
     
     for company in watchlist.get('companies', []):
-        # 汇总监测词：JSON 里的 name 和 aliases 列表
+        # 汇总监测词
         search_terms = [company['name'].lower()]
         if company.get('aliases'):
             search_terms.extend([a.lower() for a in company['aliases']])
@@ -110,13 +109,13 @@ def check_matches(entities, watchlist):
         for entity in entities:
             if entity['name'] in seen_sdn: continue
             
-            # 汇总 SDN 词：官方名和官方别名
+            # 汇总 SDN 官方名和官方别名
             sdn_ids = [entity['name'].lower()] + [aka.lower() for aka in entity.get('aliases', [])]
             
             is_hit = False
             hit_score = 0
+            trigger_term = ""  # 初始化触发词变量
             
-            # 遍历每一个搜索词去撞 SDN 的每一个名称
             for term in search_terms:
                 if not term: continue
                 for sdn_id in sdn_ids:
@@ -124,19 +123,22 @@ def check_matches(entities, watchlist):
                     if term in sdn_id:
                         is_hit = True
                         hit_score = 100.0
+                        trigger_term = term  # 关键：记录触发词
                         break
-                    # 2. 高分模糊匹配 (针对较长词)
+                    # 2. 高分模糊匹配
                     if len(term) > 5:
                         score = fuzz.token_set_ratio(term, sdn_id)
                         if score >= 95:
                             is_hit = True
                             hit_score = score
+                            trigger_term = term  # 关键：记录触发词
                             break
                 if is_hit: break
             
             if is_hit:
                 matches.append({
                     'watch_name': company['name'],
+                    'trigger_term': trigger_term,  # 【修复】确保这里存入了 trigger_term
                     'matched_name': entity['name'],
                     'type': entity['type'],
                     'programs': entity['programs'],
@@ -147,9 +149,6 @@ def check_matches(entities, watchlist):
 
 
 def format_markdown_message(all_matches, new_matches, check_time):
-    """
-    格式化消息：增加“触发关键词”显示
-    """
     lines = [
         "### 🚨 SDN 制裁清单监测报告",
         f"> 📊 监测结果：发现 **{len(all_matches)}** 个命中",
@@ -163,14 +162,12 @@ def format_markdown_message(all_matches, new_matches, check_time):
         is_new = match['matched_name'] in new_names
         status_icon = "🔴" if is_new else "⚪"
         
-        # 第一行：状态与监控主名
-        lines.append(f"{idx}. {status_icon} **{match['watch_name']}**")
-        # 第二行：命中详情（橙色显示官方名）
-        lines.append(f"　 ➔ <font color=\"warning\">{match['matched_name']}</font>")
+        # 获取触发词，如果不存在则显示“未知”
+        t_term = match.get('trigger_term', '未知')
         
-        # 详细信息（使用全角空格对齐）
-        # 将触发关键词加粗并高亮显示
-        lines.append(f"　 - **触发词**：`<font color=\"info\">{match['trigger_term']}</font>`")
+        lines.append(f"{idx}. {status_icon} **{match['watch_name']}**")
+        lines.append(f"　 ➔ <font color=\"warning\">{match['matched_name']}</font>")
+        lines.append(f"　 - **触发词**：`<font color=\"info\">{t_term}</font>`")
         lines.append(f"　 - **类型**：{match['type']}")
         lines.append(f"　 - **项目**：{match['programs']}")
         lines.append(f"　 - **匹配度**：`{match['score']}%`")
@@ -178,8 +175,6 @@ def format_markdown_message(all_matches, new_matches, check_time):
 
     lines.append("---")
     lines.append(f"<font color=\"comment\">⏰ 检查时间：{check_time}</font>")
-    lines.append("<font color=\"comment\">📡 数据来源：US OFAC SDN List</font>")
-    
     return "\n".join(lines)
 
 
