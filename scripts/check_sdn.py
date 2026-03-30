@@ -6,51 +6,31 @@ import traceback
 import xml.etree.ElementTree as ET
 from datetime import datetime
 from rapidfuzz import fuzz
-import pandas as pd  # 【修改】新增：用于处理 Excel 
 
 # --- 路径配置 ---
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(SCRIPT_DIR)
 
-# 【修改】配置文件后缀改为 .xlsx 
-CONFIG_FILE = os.path.join(ROOT_DIR, "config", "watchlist.xlsx") 
+# 【修改】重新指向 JSON 配置文件
+CONFIG_FILE = os.path.join(ROOT_DIR, "config", "watchlist.json") 
 STATE_FILE = os.path.join(ROOT_DIR, "data", "last_check.json")
 OPEN_SANCTIONS_URL = "https://www.treasury.gov/ofac/downloads/sdn.xml"
 
 def load_config():
-    """【修改】从 Excel 加载监测配置 """
-    print(f"   加载 Excel 配置: {CONFIG_FILE}")
+    """【修改】从 JSON 加载监测配置"""
+    print(f"   加载 JSON 配置: {CONFIG_FILE}")
     if not os.path.exists(CONFIG_FILE):
-        print(f"   ❌ 错误：找不到 Excel 配置文件！")
+        print(f"   ❌ 错误：找不到 JSON 配置文件！")
         sys.exit(1)
     try:
-        # 读取 Excel
-        df = pd.read_excel(CONFIG_FILE)
-        companies = []
-        for _, row in df.iterrows():
-            name = str(row.get('name', '')).strip()
-            # 过滤无效行
-            if not name or name == 'nan': continue
-            
-            # 处理别名：支持用分号或逗号分隔
-            raw_aliases = str(row.get('aliases', '')).replace('；', ';').replace('，', ',')
-            if raw_aliases and raw_aliases != 'nan':
-                alias_list = [a.strip() for a in raw_aliases.split(';') if a.strip()]
-            else:
-                alias_list = []
-                
-            companies.append({
-                'name': name,
-                'aliases': alias_list
-            })
-        print(f"   ✅ 成功加载 {len(companies)} 条监测对象")
-        return {'companies': companies}
+        with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
     except Exception as e:
-        print(f"   ❌ 错误：读取 Excel 失败 - {e}")
+        print(f"   ❌ 错误：读取 JSON 失败 - {e}")
         sys.exit(1)
 
 def load_last_state():
-    """【修复】加载上次状态，解决之前定义的 NameError """
+    """【修复】加载上次状态"""
     if os.path.exists(STATE_FILE):
         try:
             with open(STATE_FILE, 'r', encoding='utf-8') as f:
@@ -60,7 +40,7 @@ def load_last_state():
     return {"last_check": None, "matched_entities": []}
 
 def save_state(state):
-    """保存状态 """
+    """保存状态"""
     try:
         os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
         with open(STATE_FILE, 'w', encoding='utf-8') as f:
@@ -70,7 +50,7 @@ def save_state(state):
         print(f"   ⚠️ 保存状态失败: {e}")
 
 def fetch_sdn_list():
-    """获取 SDN 数据 """
+    """获取 SDN 数据"""
     print("步骤 2: 获取 SDN 数据...")
     try:
         response = requests.get(OPEN_SANCTIONS_URL, timeout=60)
@@ -81,7 +61,7 @@ def fetch_sdn_list():
         return None
 
 def parse_sdn_data(xml_text):
-    """解析 XML """
+    """解析 XML"""
     print("   解析 OFAC XML...")
     try:
         root = ET.fromstring(xml_text)
@@ -90,14 +70,12 @@ def parse_sdn_data(xml_text):
         
         entities = []
         for entry in entries:
-            # 提取名称
             fn = entry.find('ns:firstName', ns).text if entry.find('ns:firstName', ns) is not None else ""
             ln = entry.find('ns:lastName', ns).text if entry.find('ns:lastName', ns) is not None else ""
             full_name = f"{fn} {ln}".strip() if fn else ln.strip()
             
             if not full_name: continue
             
-            # 提取别名
             aka_names = []
             aka_list = entry.find('ns:akaList', ns)
             if aka_list is not None:
@@ -118,14 +96,16 @@ def parse_sdn_data(xml_text):
         return []
 
 def check_matches(entities, watchlist):
-    """【修改】判定逻辑：所有 name 或 alias 命中任意一个就算成功 """
+    """【保持新逻辑】判定逻辑：所有 name 或 alias 命中任意一个就算成功"""
     print("步骤 3: 匹配检查...")
     matches = []
     seen_sdn = set()
     
-    for company in watchlist['companies']:
-        # 汇总监测词：Excel 里的 name 和所有别名
-        search_terms = [company['name'].lower()] + [a.lower() for a in company.get('aliases', [])]
+    for company in watchlist.get('companies', []):
+        # 汇总监测词：JSON 里的 name 和 aliases 列表
+        search_terms = [company['name'].lower()]
+        if company.get('aliases'):
+            search_terms.extend([a.lower() for a in company['aliases']])
         
         for entity in entities:
             if entity['name'] in seen_sdn: continue
@@ -136,14 +116,16 @@ def check_matches(entities, watchlist):
             is_hit = False
             hit_score = 0
             
+            # 遍历每一个搜索词去撞 SDN 的每一个名称
             for term in search_terms:
+                if not term: continue
                 for sdn_id in sdn_ids:
-                    # 包含匹配
+                    # 1. 包含匹配
                     if term in sdn_id:
                         is_hit = True
                         hit_score = 100.0
                         break
-                    # 高分模糊匹配 (针对长度 > 5 的词)
+                    # 2. 高分模糊匹配 (针对较长词)
                     if len(term) > 5:
                         score = fuzz.token_set_ratio(term, sdn_id)
                         if score >= 95:
@@ -164,7 +146,7 @@ def check_matches(entities, watchlist):
     return matches
 
 def format_markdown_message(all_matches, new_matches, check_time):
-    """格式化消息 """
+    """格式化消息"""
     lines = ["## 🚨 SDN 制裁清单监测报告", "", f"**📊 监测结果：发现 {len(all_matches)} 个命中**"]
     if new_matches: lines.append(f"**🔴 其中新增 {len(new_matches)} 个**")
     lines.append("")
@@ -183,12 +165,10 @@ def main():
         entities = parse_sdn_data(sdn_data)
         current_matches = check_matches(entities, config)
         
-        # 4. 检测历史
         last_state = load_last_state()
         prev_names = {m['matched_name'] for m in last_state.get('matched_entities', [])}
         new_matches = [m for m in current_matches if m['matched_name'] not in prev_names]
         
-        # 5. 推送通知
         if current_matches:
             webhook_key = os.environ.get('WECOM_WEBHOOK_KEY')
             if webhook_key:
@@ -196,7 +176,6 @@ def main():
                 msg = format_markdown_message(current_matches, new_matches, datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
                 send_wecom_message(msg)
         
-        # 6. 保存状态
         save_state({"last_check": datetime.now().isoformat(), "matched_entities": current_matches})
         print("✅ 监测任务完成")
     except Exception:
