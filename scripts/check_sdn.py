@@ -6,6 +6,7 @@ import traceback
 import xml.etree.ElementTree as ET
 from datetime import datetime
 from rapidfuzz import fuzz
+import pandas as pd  # 新增导入 [cite: 1, 2]
 
 
 # 路径配置
@@ -18,42 +19,48 @@ STATE_FILE = os.path.join(ROOT_DIR, "data", "last_check.json")
 CONFIG_FILE = os.path.join(ROOT_DIR, "config", "watchlist.json")
 
 
+# 路径配置
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT_DIR = os.path.dirname(SCRIPT_DIR)
+
+# 修改：配置文件后缀改为 .xlsx
+CONFIG_FILE = os.path.join(ROOT_DIR, "config", "watchlist.xlsx") 
+
 def load_config():
-    """加载监测配置"""
-    print(f"   加载配置: {CONFIG_FILE}")
+    """从 Excel 加载监测配置"""
+    print(f"   加载 Excel 配置: {CONFIG_FILE}")
     
     if not os.path.exists(CONFIG_FILE):
-        print(f"   ❌ 错误：找不到配置文件！")
+        print(f"   ❌ 错误：找不到 Excel 配置文件！")
         sys.exit(1)
     
     try:
-        with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
-            return json.load(f)
+        # 使用 pandas 读取 Excel 文件 [cite: 1, 2]
+        df = pd.read_excel(CONFIG_FILE)
+        
+        # 转换数据格式以适配原有的匹配逻辑
+        companies = []
+        for _, row in df.iterrows():
+            name = str(row.get('name', '')).strip()
+            if not name or name == 'nan': continue
+            
+            # 处理别名：支持用分号或逗号分隔
+            raw_aliases = str(row.get('aliases', '')).replace('；', ';').replace('，', ',')
+            if raw_aliases and raw_aliases != 'nan':
+                alias_list = [a.strip() for a in raw_aliases.split(';') if a.strip()]
+            else:
+                alias_list = []
+                
+            companies.append({
+                'name': name,
+                'aliases': alias_list
+            })
+            
+        print(f"   ✅ 成功加载 {len(companies)} 条监测对象")
+        return {'companies': companies}
     except Exception as e:
-        print(f"   ❌ 错误：{e}")
+        print(f"   ❌ 错误：读取 Excel 失败 - {e}")
         sys.exit(1)
-
-
-def load_last_state():
-    """加载上次状态"""
-    if os.path.exists(STATE_FILE):
-        try:
-            with open(STATE_FILE, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except Exception as e:
-            print(f"   ⚠️ 读取状态失败: {e}")
-    return {"last_check": None, "matched_entities": []}
-
-
-def save_state(state):
-    """保存状态"""
-    try:
-        os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
-        with open(STATE_FILE, 'w', encoding='utf-8') as f:
-            json.dump(state, f, ensure_ascii=False, indent=2)
-        print(f"   💾 状态已保存")
-    except Exception as e:
-        print(f"   ⚠️ 保存状态失败: {e}")
 
 
 def fetch_sdn_list():
