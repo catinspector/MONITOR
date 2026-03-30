@@ -63,6 +63,27 @@ def load_config():
         sys.exit(1)
 
 
+def load_last_state():
+    """加载上次状态"""
+    if os.path.exists(STATE_FILE):
+        try:
+            with open(STATE_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"   ⚠️ 读取状态失败: {e}")
+    return {"last_check": None, "matched_entities": []}
+
+def save_state(state):
+    """保存状态"""
+    try:
+        os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
+        with open(STATE_FILE, 'w', encoding='utf-8') as f:
+            json.dump(state, f, ensure_ascii=False, indent=2)
+        print(f"   💾 状态已保存")
+    except Exception as e:
+        print(f"   ⚠️ 保存状态失败: {e}")
+
+
 def fetch_sdn_list():
     """获取 OFAC SDN XML"""
     print("步骤 2: 获取 SDN 数据...")
