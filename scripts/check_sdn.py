@@ -6,42 +6,30 @@ import traceback
 import xml.etree.ElementTree as ET
 from datetime import datetime
 from rapidfuzz import fuzz
-import pandas as pd  # 新增导入 [cite: 1, 2]
+import pandas as pd  # 【修改】新增：用于处理 Excel 
 
-
-# 路径配置
+# --- 路径配置 ---
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(SCRIPT_DIR)
 
-# OFAC 官方 SDN XML
-OPEN_SANCTIONS_URL = "https://www.treasury.gov/ofac/downloads/sdn.xml"
-STATE_FILE = os.path.join(ROOT_DIR, "data", "last_check.json")
-CONFIG_FILE = os.path.join(ROOT_DIR, "config", "watchlist.json")
-
-
-# 路径配置
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-ROOT_DIR = os.path.dirname(SCRIPT_DIR)
-
-# 修改：配置文件后缀改为 .xlsx
+# 【修改】配置文件后缀改为 .xlsx 
 CONFIG_FILE = os.path.join(ROOT_DIR, "config", "watchlist.xlsx") 
+STATE_FILE = os.path.join(ROOT_DIR, "data", "last_check.json")
+OPEN_SANCTIONS_URL = "https://www.treasury.gov/ofac/downloads/sdn.xml"
 
 def load_config():
-    """从 Excel 加载监测配置"""
+    """【修改】从 Excel 加载监测配置 """
     print(f"   加载 Excel 配置: {CONFIG_FILE}")
-    
     if not os.path.exists(CONFIG_FILE):
         print(f"   ❌ 错误：找不到 Excel 配置文件！")
         sys.exit(1)
-    
     try:
-        # 使用 pandas 读取 Excel 文件 [cite: 1, 2]
+        # 读取 Excel
         df = pd.read_excel(CONFIG_FILE)
-        
-        # 转换数据格式以适配原有的匹配逻辑
         companies = []
         for _, row in df.iterrows():
             name = str(row.get('name', '')).strip()
+            # 过滤无效行
             if not name or name == 'nan': continue
             
             # 处理别名：支持用分号或逗号分隔
@@ -55,16 +43,14 @@ def load_config():
                 'name': name,
                 'aliases': alias_list
             })
-            
         print(f"   ✅ 成功加载 {len(companies)} 条监测对象")
         return {'companies': companies}
     except Exception as e:
         print(f"   ❌ 错误：读取 Excel 失败 - {e}")
         sys.exit(1)
 
-
 def load_last_state():
-    """加载上次状态"""
+    """【修复】加载上次状态，解决之前定义的 NameError """
     if os.path.exists(STATE_FILE):
         try:
             with open(STATE_FILE, 'r', encoding='utf-8') as f:
@@ -74,7 +60,7 @@ def load_last_state():
     return {"last_check": None, "matched_entities": []}
 
 def save_state(state):
-    """保存状态"""
+    """保存状态 """
     try:
         os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
         with open(STATE_FILE, 'w', encoding='utf-8') as f:
@@ -83,289 +69,139 @@ def save_state(state):
     except Exception as e:
         print(f"   ⚠️ 保存状态失败: {e}")
 
-
 def fetch_sdn_list():
-    """获取 OFAC SDN XML"""
+    """获取 SDN 数据 """
     print("步骤 2: 获取 SDN 数据...")
     try:
         response = requests.get(OPEN_SANCTIONS_URL, timeout=60)
         response.raise_for_status()
-        print(f"   ✅ 获取成功，数据大小: {len(response.text)} 字符")
         return response.text
     except Exception as e:
         print(f"   ❌ 获取失败: {e}")
         return None
 
 def parse_sdn_data(xml_text):
-    """解析 OFAC 官方 SDN XML"""
+    """解析 XML """
     print("   解析 OFAC XML...")
-    
     try:
         root = ET.fromstring(xml_text)
-    except ET.ParseError as e:
-        print(f"   ❌ XML 解析错误: {e}")
-        return []
-    
-    # 提取命名空间
-    ns = {}
-    if '}' in root.tag:
-        ns_url = root.tag.split('}')[0].strip('{')
-        ns = {'ns': ns_url}
-    
-    print(f"   📅 发布日期: {root.find('ns:publshInformation/ns:Publish_Date', ns).text if root.find('ns:publshInformation/ns:Publish_Date', ns) is not None else 'Unknown'}")
-    print(f"   📊 记录数: {root.find('ns:publshInformation/ns:Record_Count', ns).text if root.find('ns:publshInformation/ns:Record_Count', ns) is not None else 'Unknown'}")
-    
-    # 使用命名空间查找所有 sdnEntry
-    entries = root.findall('ns:sdnEntry', ns)
-    print(f"   找到 {len(entries)} 个实体")
-    
-    entities = []
-    
-    for entry in entries:
-        try:
-            # 使用命名空间获取字段
-            first_name = entry.find('ns:firstName', ns)
-            last_name = entry.find('ns:lastName', ns)
+        ns = {'ns': root.tag.split('}')[0].strip('{')} if '}' in root.tag else {}
+        entries = root.findall('ns:sdnEntry', ns) if ns else root.findall('sdnEntry')
+        
+        entities = []
+        for entry in entries:
+            # 提取名称
+            fn = entry.find('ns:firstName', ns).text if entry.find('ns:firstName', ns) is not None else ""
+            ln = entry.find('ns:lastName', ns).text if entry.find('ns:lastName', ns) is not None else ""
+            full_name = f"{fn} {ln}".strip() if fn else ln.strip()
             
-            name = ''
-            if last_name is not None and last_name.text:
-                name = last_name.text.strip()
-            if first_name is not None and first_name.text:
-                if name:
-                    name = f"{first_name.text.strip()} {name}"
-                else:
-                    name = first_name.text.strip()
+            if not full_name: continue
             
-            if not name:
-                continue
-            
-            # 类型
-            sdn_type = entry.find('ns:sdnType', ns)
-            entity_type = sdn_type.text.strip() if sdn_type is not None else 'Unknown'
-            
-            # 制裁项目
-            programs = []
-            program_list = entry.find('ns:programList', ns)
-            if program_list is not None:
-                for prog in program_list.findall('ns:program', ns):
-                    if prog.text:
-                        programs.append(prog.text.strip())
-            
-            # 别名
-            aliases = []
+            # 提取别名
+            aka_names = []
             aka_list = entry.find('ns:akaList', ns)
             if aka_list is not None:
                 for aka in aka_list.findall('ns:aka', ns):
-                    aka_first = aka.find('ns:firstName', ns)
-                    aka_last = aka.find('ns:lastName', ns)
-                    
-                    aka_name = ''
-                    if aka_last is not None and aka_last.text:
-                        aka_name = aka_last.text.strip()
-                    if aka_first is not None and aka_first.text:
-                        if aka_name:
-                            aka_name = f"{aka_first.text.strip()} {aka_name}"
-                        else:
-                            aka_name = aka_first.text.strip()
-                    
-                    if aka_name and aka_name != name:
-                        aliases.append(aka_name)
-            
-            entities.append({
-                'name': name,
-                'aliases': aliases,
-                'type': entity_type,
-                'programs': '; '.join(programs) if programs else 'SDN'
-            })
-            
-        except Exception:
-            continue
-    
-    print(f"   ✅ 解析完成：共 {len(entities)} 个实体")
-    
-    # 验证 Kovrov
-    kovrov_list = [e for e in entities if 'kovrov' in e['name'].lower()]
-    print(f"   🔍 验证: 找到 {len(kovrov_list)} 个 Kovrov")
-    if kovrov_list:
-        print(f"      例如: {kovrov_list[0]['name']}")
-        print(f"      别名: {kovrov_list[0]['aliases'][:3]}")
-    
-    return entities
+                    afn = aka.find('ns:firstName', ns).text if aka.find('ns:firstName', ns) is not None else ""
+                    aln = aka.find('ns:lastName', ns).text if aka.find('ns:lastName', ns) is not None else ""
+                    aka_names.append(f"{afn} {aln}".strip() if afn else aln.strip())
 
+            entities.append({
+                'name': full_name,
+                'aliases': aka_names,
+                'type': entry.find('ns:sdnType', ns).text if entry.find('ns:sdnType', ns) is not None else "Unknown",
+                'programs': "; ".join([p.text for p in entry.findall('.//ns:program', ns) if p.text])
+            })
+        return entities
+    except Exception as e:
+        print(f"   ❌ XML 解析错误: {e}")
+        return []
 
 def check_matches(entities, watchlist):
-    """严格匹配 - 必须包含独特关键词"""
+    """【修改】判定逻辑：所有 name 或 alias 命中任意一个就算成功 """
     print("步骤 3: 匹配检查...")
     matches = []
-    seen = set()
+    seen_sdn = set()
     
     for company in watchlist['companies']:
-        # 提取独特关键词（长度>4且非通用词）
-        unique_terms = [company['name'].lower()]
-        aliases = company.get('aliases', [])
-        if isinstance(aliases, str):
-            aliases = [aliases]
-        unique_terms.extend([a.lower() for a in aliases])
-        
-        print(f"   监测: {company['name']}")
+        # 汇总监测词：Excel 里的 name 和所有别名
+        search_terms = [company['name'].lower()] + [a.lower() for a in company.get('aliases', [])]
         
         for entity in entities:
-            if entity['name'] in seen:
-                continue
+            if entity['name'] in seen_sdn: continue
             
-            csv_identifiers = [entity['name']] + entity.get('aliases', [])
+            # 汇总 SDN 词：官方名和官方别名
+            sdn_ids = [entity['name'].lower()] + [aka.lower() for aka in entity.get('aliases', [])]
             
-            # 策略1：完整子串匹配（最准确）
-            full_match = False
-            for term in unique_terms:
-                for csv_id in csv_identifiers:
-                    # 清理后的完整匹配
-                    if term in csv_id.lower():
-                        full_match = True
-                        score = 100.0
+            is_hit = False
+            hit_score = 0
+            
+            for term in search_terms:
+                for sdn_id in sdn_ids:
+                    # 包含匹配
+                    if term in sdn_id:
+                        is_hit = True
+                        hit_score = 100.0
                         break
-                if full_match:
-                    break
-            
-            # 策略2：高模糊匹配（>=95%）且包含主要词
-            high_score_match = False
-            if not full_match:
-                for term in unique_terms:
-                    for csv_id in csv_identifiers:
-                        score = fuzz.token_set_ratio(term, csv_id)
-                        # 要求：高得分 AND 包含独特词（如kovrov/atomenergo）
+                    # 高分模糊匹配 (针对长度 > 5 的词)
+                    if len(term) > 5:
+                        score = fuzz.token_set_ratio(term, sdn_id)
                         if score >= 95:
-                            # 检查是否包含独特词（至少1个长度>5的词）
-                            term_words = [w for w in term.split() if len(w) > 5]
-                            csv_text = csv_id.lower()
-                            has_unique_word = any(w in csv_text for w in term_words)
-                            if has_unique_word:
-                                high_score_match = True
-                                break
-                    if high_score_match:
-                        break
+                            is_hit = True
+                            hit_score = score
+                            break
+                if is_hit: break
             
-            if full_match or high_score_match:
+            if is_hit:
                 matches.append({
                     'watch_name': company['name'],
                     'matched_name': entity['name'],
-                    'matched_aliases': entity.get('aliases', [])[:2],
                     'type': entity['type'],
                     'programs': entity['programs'],
-                    'score': round(score if 'score' in dir() else 100.0, 1)
+                    'score': round(hit_score, 1)
                 })
-                seen.add(entity['name'])
-                match_type = "完整匹配" if full_match else "高得分匹配"
-                print(f"      ✓ 命中: {entity['name']} ({match_type})")
-    
-    print(f"   🎯 总计发现 {len(matches)} 个匹配")
+                seen_sdn.add(entity['name'])
     return matches
-    
 
 def format_markdown_message(all_matches, new_matches, check_time):
-    """格式化消息"""
-    lines = []
-    lines.append("## 🚨 SDN 制裁清单监测报告")
+    """格式化消息 """
+    lines = ["## 🚨 SDN 制裁清单监测报告", "", f"**📊 监测结果：发现 {len(all_matches)} 个命中**"]
+    if new_matches: lines.append(f"**🔴 其中新增 {len(new_matches)} 个**")
     lines.append("")
-    
-    lines.append(f"**📊 监测结果：发现 {len(all_matches)} 个命中**")
-    if new_matches:
-        lines.append(f"**🔴 其中新增 {len(new_matches)} 个**")
-    lines.append("")
-    
-    for idx, match in enumerate(all_matches, 1):
-        is_new = any(m['matched_name'] == match['matched_name'] for m in new_matches)
-        new_flag = "🔴 " if is_new else ""
-        
-        lines.append(f"{idx}. {new_flag}**{match['watch_name']}** → `{match['matched_name']}`")
-        if match.get('matched_aliases'):
-            lines.append(f"   - 别名：{', '.join(match['matched_aliases'])}")
-        lines.append(f"   - 类型：{match['type']}")
-        lines.append(f"   - 制裁项目：{match['programs']}")
-        lines.append(f"   - 匹配度：{match['score']}%")
-        lines.append("")
-    
-    lines.append("---")
-    lines.append(f"⏰ 检查时间：{check_time}")
-    lines.append("📡 数据来源：US OFAC SDN List (Official)")
-    
+    for idx, m in enumerate(all_matches, 1):
+        lines.append(f"{idx}. **{m['watch_name']}** → `{m['matched_name']}` (得分: {m['score']}%)")
+    lines.extend(["---", f"⏰ 检查时间：{check_time}", "📡 数据来源：US OFAC SDN List"])
     return "\n".join(lines)
-
 
 def main():
     print(f"🚀 SDN 监测任务开始 - {datetime.now()}")
-    print("=" * 60)
-    
     try:
-        # 1. 加载配置
-        print("步骤 1: 加载配置...")
         config = load_config()
-        
-        # 2. 获取数据
         sdn_data = fetch_sdn_list()
-        if not sdn_data:
-            sys.exit(1)
+        if not sdn_data: sys.exit(1)
         
-        # 3. 解析 XML
         entities = parse_sdn_data(sdn_data)
-        if not entities:
-            print("❌ 未解析到实体")
-            sys.exit(1)
-        
-        # 4. 匹配
         current_matches = check_matches(entities, config)
         
-        # 5. 检测新增
-        print("步骤 4: 检测历史记录...")
+        # 4. 检测历史
         last_state = load_last_state()
         prev_names = {m['matched_name'] for m in last_state.get('matched_entities', [])}
         new_matches = [m for m in current_matches if m['matched_name'] not in prev_names]
         
-        if new_matches:
-            print(f"   🆕 新增命中：{len(new_matches)} 个")
-        else:
-            print(f"   无新增命中")
-        
-        # 6. 推送（只要有命中就推送）
+        # 5. 推送通知
         if current_matches:
-            print(f"步骤 5: 发送企业微信通知（发现 {len(current_matches)} 个命中）...")
-            
             webhook_key = os.environ.get('WECOM_WEBHOOK_KEY')
-            if not webhook_key:
-                print("   ❌ 错误：未设置 WECOM_WEBHOOK_KEY")
-                sys.exit(1)
-            
-            try:
+            if webhook_key:
                 from wecom_bot import send_wecom_message
-                
-                check_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                message = format_markdown_message(current_matches, new_matches, check_time)
-                
-                send_wecom_message(message)
-                print("   ✅ 推送成功")
-                
-            except Exception as e:
-                print(f"   ❌ 推送失败: {e}")
-                traceback.print_exc()
-        else:
-            print("步骤 5: 未命中任何监测对象，跳过推送")
+                msg = format_markdown_message(current_matches, new_matches, datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+                send_wecom_message(msg)
         
-        # 7. 保存状态
-        print("步骤 6: 保存状态...")
-        save_state({
-            "last_check": datetime.now().isoformat(),
-            "entity_count": len(entities),
-            "matched_entities": current_matches
-        })
-        
-        print("=" * 60)
+        # 6. 保存状态
+        save_state({"last_check": datetime.now().isoformat(), "matched_entities": current_matches})
         print("✅ 监测任务完成")
-        
-    except Exception as e:
-        print(f"❌ 任务失败: {e}")
+    except Exception:
         traceback.print_exc()
         sys.exit(1)
-
 
 if __name__ == "__main__":
     main()
