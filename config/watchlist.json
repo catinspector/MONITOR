@@ -9,12 +9,32 @@
       "aliases": ["Atomenergoprom"]
     },
     {
-      "name": "Kirill Komarov",
+      "name": "Komarov Kirill Borisovich",
       "aliases": ["Kirill Komarov"]
     },
     {
-      "name": "Ilya Rebrov",
+      "name": "Rebrov Ilya Vasilevich",
       "aliases": ["Ilya Rebrov"]
+    },
+    {
+      "name": "Vrzhesen Yulia Olegovna",
+      "aliases": ["Yulia Vrzhesen"]
+    },
+    {
+      "name": "Lyakhova Ekaterina Viktorovna",
+      "aliases": ["Ekaterina Lyakhova"]
+    },
+    {
+      "name": "Korogodin Vladislav Igorevich",
+      "aliases": ["Vladislav Korogodin"]
+    },
+    {
+      "name": "Miroshnichenko Anna Viktorovna",
+      "aliases": ["Anna Miroshnichenko"]
+    },
+    {
+      "name": "Plotnikova Natalia Viktorovna",
+      "aliases": ["Natalia Plotnikova"]
     }
   ]
 }
