@@ -1,40 +1,40 @@
 {
-  "companies": [
-    {
-      "name": "State Atomic Energy Corporation",
-      "aliases": ["Rosatom"]
-    },
-    {
-      "name": "Atomic Energy Power Corporation",
-      "aliases": ["Atomenergoprom"]
-    },
-    {
-      "name": "Kirill Borisovich Komarov",
-      "aliases": ["Kirill Komarov"]
-    },
-    {
-      "name": "Ilya Vasilevich Rebrov",
-      "aliases": ["Ilya Rebrov"]
-    },
-    {
-      "name": "Yulia Olegovna Vrzhesen",
-      "aliases": ["Yulia Vrzhesen"]
-    },
-    {
-      "name": "Ekaterina Viktorovna Lyakhova",
-      "aliases": ["Ekaterina Lyakhova"]
-    },
-    {
-      "name": "Vladislav Igorevich Korogodin",
-      "aliases": ["Vladislav Korogodin"]
-    },
-    {
-      "name": "Anna Viktorovna Miroshnichenko",
-      "aliases": ["Anna Miroshnichenko"]
-    },
-    {
-      "name": "Natalia Viktorovna Plotnikova",
-      "aliases": ["Natalia Plotnikova"]
-    }
-  ]
+   "companies": [
+     {
+       "name": "State Atomic Energy Corporation",
+       "aliases": ["Rosatom"]
+     },
+     {
+       "name": "Atomic Energy Power Corporation",
+       "aliases": ["Atomenergoprom"]
+     },
+     {
+       "name": "Kirill Borisovich Komarov",
+       "aliases": ["Kirill Komarov"]
+     },
+     {
+       "name": "Ilya Vasilevich Rebrov",
+       "aliases": ["Ilya Rebrov"]
+     },
+     {
+       "name": "Yulia Olegovna Vrzhesen",
+       "aliases": ["Yulia Vrzhesen"]
+     },
+     {
+       "name": "Ekaterina Viktorovna Lyakhova",
+       "aliases": ["Ekaterina Lyakhova"]
+     },
+     {
+       "name": "Vladislav Igorevich Korogodin",
+       "aliases": ["Vladislav Korogodin"]
+     },
+     {
+       "name": "Anna Viktorovna Miroshnichenko",
+       "aliases": ["Anna Miroshnichenko"]
+     },
+     {
+       "name": "Natalia Viktorovna Plotnikova",
+       "aliases": ["Natalia Plotnikova"]
+     }
+   ]
 }
